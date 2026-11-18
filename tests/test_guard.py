@@ -19,8 +19,10 @@ def test_fix_dashes_quotes_emoji():
 
 
 def test_clean_opening_passes(facts):
-    assert rules("Good morning. I'm writing on behalf of Yaroslav - could I book a table for two today at 17:00, "
-                 "please?", facts) == set()
+    text = engine.OPENING.format(greeting="Good morning", who="Yaroslav", time=facts.get("time"))
+    assert text == "Good morning. I'm Yaroslav's assistant - could I book a table for two today at 17:00, please?"
+    assert "AI" not in text.split()
+    assert rules(text, facts) == set()
 
 
 def test_real_slip_watched_the_match(facts):

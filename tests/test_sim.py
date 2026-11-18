@@ -83,3 +83,13 @@ def test_model_down_schedules_one_retry_at_a_time(tmp_path):
     assert res.problems == []
     # a stale retry would make an extra model call, and the strict FakeBrain would fail on it
     assert len(brain.calls) == 6
+
+
+def test_opening_says_assistant_not_ai(tmp_path):
+    from agent.brain import D
+    from sim.scenarios import Scenario, Step
+    draft = "Good morning. I'm Yaroslav's AI assistant - could I book a table for two today at 17:00, please?"
+    scn = Scenario("open_ai", "model says AI in the opening", [Step("open", brain=[D(draft)], expect={"sends": 1})])
+    res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
+    assert res.all_sent == [("text", "Good morning. I'm Yaroslav's assistant - could I book a table for two today "
+                                     "at 17:00, please?")]

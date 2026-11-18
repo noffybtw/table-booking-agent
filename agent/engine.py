@@ -5,6 +5,7 @@ proposes a reply and slot values, the code decides what is accepted, what goes t
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Callable
 
@@ -16,7 +17,7 @@ from agent.facts import FactStore
 
 NEW, OPEN, CONFIRMED = "new", "open", "confirmed"
 
-OPENING = "{greeting}. I'm writing on behalf of {who} - could I book a table for two today at {time}, please?"
+OPENING = "{greeting}. I'm {who}'s assistant - could I book a table for two today at {time}, please?"
 HOLD = "Let me just check that with {who}, I'll be back in a moment."
 STILL_CHECKING = "Thank you for bearing with me, I'm still checking that with {who}."
 SORRY_WAIT = "Sorry for the wait, I'm still confirming that detail."
@@ -94,12 +95,16 @@ class Engine:
         now = self.now()
         tmpl = OPENING.format(greeting=clock.greeting(now), who=self.who, time=self.facts.get("time"))
         event = (f"Open the conversation now. In London it is {clock.hhmm(now)}, so greet with "
-                 f"'{clock.greeting(now)}'. Say you are writing on behalf of {self.who} and ask for a table for two "
-                 f"today at {self.facts.get('time')}. One message, for example: \"{tmpl}\"")
+                 f"'{clock.greeting(now)}'. Introduce yourself as {self.who}'s assistant (do not say AI here) "
+                 f"and ask for a table for two today at {self.facts.get('time')}. One message, for example: "
+                 f"\"{tmpl}\"")
         acts: list = []
         d = self._decide(event, acts)
         draft = d.reply if d and d.reply.strip() else tmpl
         why = "opening, " + self._slot_summary()
+        if re.search(r"\bAI\b", draft):
+            # the opening says just "assistant"; "AI" comes only when the manager asks whether it is a bot
+            draft, why = tmpl, why + " (model draft said AI, template sent)"
         acts += self._say(draft, event, why, fallback=tmpl)
         self.phase = OPEN
         acts += self._arm_silence()
