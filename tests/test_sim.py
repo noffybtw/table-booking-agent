@@ -143,3 +143,16 @@ def test_quiet_rule_needs_nothing_pending(tmp_path):
     ])
     res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
     assert res.problems == []
+
+
+def test_one_closing_is_owed_when_the_model_stays_quiet(tmp_path):
+    from agent.brain import D
+    from sim.scenarios import AGREE, M, REST, RESTATED, Scenario, opening
+    scn = Scenario("owed_close", "the model returns wait on the first thank-you after the restatement", [
+        opening(),
+        M(f"Yes, 17:00 for two is fine at {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED),
+        M("Great, thanks!", D(action="wait", intent="closing"), sends=1, says=["Thank you very much"]),
+        M("Bye!", D(action="wait", intent="closing"), sends=0),
+    ])
+    res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
+    assert res.problems == []

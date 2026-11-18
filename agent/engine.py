@@ -360,7 +360,10 @@ class Engine:
                 self.asked_restaurant = True
                 return acts
 
-        if not reply and self.phase == CONFIRMED and d.action == "final_restatement":
+        # one closing reply after the restatement is owed even when the model chose to stay quiet
+        owed = (self.phase == CONFIRMED and not self.closed and said is not None and d.intent in PLEASANTRY
+                and not new_keys and (d.action in ("wait", "end") or not reply))
+        if (not reply and self.phase == CONFIRMED and d.action == "final_restatement") or owed:
             # already restated and nothing changed: a short closing instead of silence
             n_before = self.n_out
             acts += self._say(CLOSING, "", "booking already restated, short closing", fallback=CLOSING,

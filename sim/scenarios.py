@@ -203,7 +203,7 @@ SCENARIOS = [
         M("You're welcome!", D("Have a lovely day.", intent="closing"), sends=0),
         M("\U0001F44D", D("Lovely.", intent="closing"), sends=0),
         M("Thanks! Could you spell the name?", D("Of course: Y-A-R-O-S-L-A-V, Yaroslav.", intent="question"),
-          sends=1, says=["Yaroslav"], asks_none=True),
+          sends=1, says=["y-a-r-o-s-l-a-v"], asks_none=True),
         M("Small change: we can only do 17:30 today, not 17:00.",
           D("I see - let me just check 17:30 with Yaroslav, I'll be back in a moment.", action="ask_owner",
             intent="counter_offer", needs_owner=["alternative_time"], offered_time="17:30"),
