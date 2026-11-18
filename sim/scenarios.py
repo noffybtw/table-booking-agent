@@ -207,7 +207,7 @@ SCENARIOS = [
         M("Small change: we can only do 17:30 today, not 17:00.",
           D("I see - let me just check 17:30 with Yaroslav, I'll be back in a moment.", action="ask_owner",
             intent="counter_offer", needs_owner=["alternative_time"], offered_time="17:30"),
-          sends=1, asks=["alternative_time"], never=["17:30 is fine", "17:30 works"]),
+          sends=1, asks=["alternative_time"], never=["17:30 is fine", "17:30 works for us"]),
         O(None, D("Thank you, 17:30 works for us.", intent="agreed"), key="alternative_time", value="accept",
           sends=1, voice=True, says=["17:30", "Thursday 19 November", REST]),
         M("Great, thanks!", D("Thank you, see you at 17:30.", intent="closing"), sends=1),
