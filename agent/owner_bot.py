@@ -25,7 +25,9 @@ class OwnerBot:
         self._base = f"{API}/bot{token}"
         self.chat_id = int(chat_id)
         self.queue = queue
-        self.http = http or httpx.AsyncClient(timeout=poll_timeout + 10)
+        # IPv6 from the host to api.telegram.org drops SYNs (measured on the VPS 04.10.2026), IPv4 answers at once
+        self.http = http or httpx.AsyncClient(timeout=poll_timeout + 10,
+                                              transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"))
         self.poll_timeout = poll_timeout
         self.offset: int | None = None
         self.asked: dict[int, str] = {}  # message_id of a question -> key

@@ -96,3 +96,15 @@ def test_skip_old_updates():
         await bot.skip_old()
         return bot.offset
     assert asyncio.run(go()) == 78
+
+
+def test_default_client_goes_over_ipv4():
+    async def go():
+        bot = OwnerBot(TOKEN, OWNER, asyncio.Queue())
+        transport = bot.http._transport
+        await bot.close()
+        return transport
+
+    transport = asyncio.run(go())
+    assert isinstance(transport, httpx.AsyncHTTPTransport)
+    assert transport._pool._local_address == "0.0.0.0"  # binds to IPv4, so only A records are tried
