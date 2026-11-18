@@ -285,6 +285,12 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
             log.close()
             await owner.close()
             await transport.stop()
+        try:
+            from agent.render import render
+            png = render(rd, title=f"@{peer}", manager_name="Manager", agent_name="Booking agent")
+            print(f"transcript: {png}")
+        except Exception as e:  # noqa: BLE001 - the picture is a bonus, the logs are already written
+            print(f"transcript not rendered: {type(e).__name__}: {e}", file=sys.stderr)
         print(f"log: {rd / 'decisions.md'}")
     return 0
 
