@@ -1,4 +1,5 @@
-"""Telegram user account (Telethon). Talks to exactly one peer; every other chat on the account is left alone.
+"""Telegram user account (Telethon), Yaroslav's second account @alexithymia0x. Talks to exactly one peer; every
+other chat on the account is left alone.
 
 The account is shared with another tool, so the handlers are registered with chats=<peer> and checked again in
 PeerFilter: other chats are never read, answered or marked as read, and history before the opening is ignored.

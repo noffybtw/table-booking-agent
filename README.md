@@ -1,6 +1,6 @@
 # Table-booking agent
 
-A Telegram agent that books a table for two in a London restaurant by writing to the manager from a user account. It opens the chat in English, answers everything the manager says, and after the manager agrees it sends one restatement: time, date, number of people, restaurant. Anything it does not know (the name for the booking, a phone number, whether a later time is fine) it asks me in a separate bot and waits for my answer. Voice notes work both ways.
+A Telegram agent that books a table for two in a London restaurant by writing to the manager from my second Telegram account, «Ярослав» (@alexithymia0x). It opens the chat in English, answers everything the manager says, and after the manager agrees it sends one restatement: time, date, number of people, restaurant. Anything it does not know (the name for the booking, a phone number, whether a later time is fine) it asks me in a separate bot, @yk_booking_console_bot, and waits for my answer. Voice notes work both ways.
 
 ## Run
 
@@ -11,14 +11,14 @@ Python 3.12. Packages: telethon, openai, httpx, pydantic, python-dotenv, edge-tt
 | key | what |
 |---|---|
 | `GROQ_API_KEY` | model, speech-to-text, Orpheus voice |
-| `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` | the Telegram user account (session file path or a StringSession) |
-| `OWNER_BOT_TOKEN`, `OWNER_CHAT_ID` | the bot where the agent asks me things |
+| `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` | the account the agent writes from, @alexithymia0x (session file path or a StringSession) |
+| `OWNER_BOT_TOKEN`, `OWNER_CHAT_ID` | the bot where the agent asks me things (@yk_booking_console_bot); its token is kept only in `.env` |
 
 ```
 python run.py --mode sim --scenario all            # 14 scripted managers, offline, scripted model
 python run.py --mode sim --scenario happy --llm groq   # the same scripts against the real model
 python run.py --mode dry                           # you type as the manager, the real model answers, nothing is sent
-python run.py --mode test --now 2026-11-19T08:00   # Telegram, manager = @noffybtw (my second account)
+python run.py --mode test --now 2026-11-19T08:00   # Telegram, @noffybtw (my main account) plays the manager
 python run.py --mode live --live-confirm vlad_dev_7    # the real manager
 python -m pytest -q                                # offline tests; -m groq adds one run on the real model
 python -m agent.render runs/<run-id>               # transcript PNG of any run

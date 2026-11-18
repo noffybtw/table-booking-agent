@@ -3,7 +3,7 @@
 
   sim   scripted managers from sim/scenarios.py, offline (--llm fake) or with the real model (--llm groq)
   dry   you play the manager in the console, the real model answers, nothing is sent anywhere
-  test  Telegram, manager = a test account from ALLOWED_TEST_PEERS (default @noffybtw)
+  test  Telegram, manager = a test account from ALLOWED_TEST_PEERS (default @noffybtw, Yaroslav's main account)
   live  Telegram, manager = @vlad_dev_7; needs --live-confirm vlad_dev_7, the real clock, before 16:30 London
 """
 from __future__ import annotations
