@@ -66,7 +66,7 @@ SCENARIOS = [
           **RESTATED, asks_none=True),
         M("Lovely, see you later!", D("Thank you very much, see you at 17:00.", intent="closing",
                                       decision="booking done, short closing"), sends=1, voice=False),
-        M("Cheers!", D(**AGREE), sends=1, says=["Thank you"]),
+        M("Cheers!", D(**AGREE), sends=0),  # the closing went out already: a pure pleasantry gets no answer
     ]),
     Scenario("counter_offer", "fully booked at 17:00, 18:30 offered, the owner says only 17:00", [
         opening(),
@@ -188,6 +188,30 @@ SCENARIOS = [
         M("Morning! Yes, 17:00 for two works. Name of the restaurant is The Crown & Anchor.",
           BrainDown("groq: 503; fallback: 429"), sends=1, says=["just a moment"], notify=True),
         silence(0.5, D(**AGREE, restaurant_name=REST), **RESTATED),
+    ]),
+    Scenario("pleasantries", "after the restatement one closing reply, then quiet on pleasantries; questions and changes "
+             "still answered", [
+        opening(),
+        M(f"Good morning! {REST} here. Could I take a name for the booking first?",
+          D("Of course. Let me just check the name with Yaroslav, I'll be back in a moment.", action="ask_owner",
+            intent="asks_info", needs_owner=["guest_name"], restaurant_name=REST), sends=1, asks=["guest_name"]),
+        O("Yaroslav", D("Thank you for waiting - it's under Yaroslav.", intent="asks_info", guest_name="Yaroslav"),
+          key="guest_name", sends=1, says=["Yaroslav"]),
+        M("Lovely, 17:00 for two under Yaroslav is booked.", D(**AGREE, restaurant_name=REST),
+          **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"]}),
+        M("Perfect, see you then!", D("Thank you, see you at 17:00.", intent="closing"), sends=1, voice=False),
+        M("You're welcome!", D("Have a lovely day.", intent="closing"), sends=0),
+        M("\U0001F44D", D("Lovely.", intent="closing"), sends=0),
+        M("Thanks! Could you spell the name?", D("Of course: Y-A-R-O-S-L-A-V, Yaroslav.", intent="question"),
+          sends=1, says=["Yaroslav"], asks_none=True),
+        M("Small change: we can only do 17:30 today, not 17:00.",
+          D("I see - let me just check 17:30 with Yaroslav, I'll be back in a moment.", action="ask_owner",
+            intent="counter_offer", needs_owner=["alternative_time"], offered_time="17:30"),
+          sends=1, asks=["alternative_time"], never=["17:30 is fine", "17:30 works"]),
+        O(None, D("Thank you, 17:30 works for us.", intent="agreed"), key="alternative_time", value="accept",
+          sends=1, voice=True, says=["17:30", "Thursday 19 November", REST]),
+        M("Great, thanks!", D("Thank you, see you at 17:30.", intent="closing"), sends=1),
+        M("Bye!", D("Goodbye!", intent="closing"), sends=0),
     ]),
 ]
 

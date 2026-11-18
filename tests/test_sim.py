@@ -93,3 +93,53 @@ def test_opening_says_assistant_not_ai(tmp_path):
     res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
     assert res.all_sent == [("text", "Good morning. I'm Yaroslav's assistant - could I book a table for two today "
                                      "at 17:00, please?")]
+
+
+def test_pleasantries_after_the_closing_get_no_reply(tmp_path):
+    from agent.events import Log
+    res = harness.run(next(s for s in SCENARIOS if s.name == "pleasantries"), FakeBrain(), tmp_path,
+                      echo=lambda s: None)
+    assert res.problems == []
+    quiet = [s for s in res.steps if s.step.text in ("You're welcome!", "\U0001F44D", "Bye!")]
+    assert len(quiet) == 3
+    for s in quiet:
+        assert s.sent == []
+        decisions = [a for a in s.acts if isinstance(a, Log) and a.kind == "decision"]
+        assert len(decisions) == 1 and "no reply: closing already sent" in decisions[0].data["decided"]
+    answered = next(s for s in res.steps if s.step.text == "Thanks! Could you spell the name?")
+    assert len(answered.sent) == 1
+    log = (tmp_path / "decisions.md").read_text()
+    assert log.count("no reply: closing already sent") == 3
+    # one line per message: the reason sits on the IN line, no separate decision line for the quiet ones
+    assert log.count(" IN manager:") == sum(s.step.kind == "manager" for s in res.steps)
+
+
+def test_closing_template_counts_as_the_closing_reply(tmp_path):
+    from agent.brain import D
+    from sim.scenarios import AGREE, M, REST, RESTATED, Scenario, opening
+    scn = Scenario("template_close", "the CLOSING template is the one closing reply", [
+        opening(),
+        M(f"Yes, 17:00 for two is fine at {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED),
+        M("Thanks!", D(**AGREE), sends=1, says=["Thank you very much"]),
+        M("Cheers!", D(**AGREE), sends=0),
+        M("You too, bye!", D("Goodbye!", intent="closing"), sends=0),
+        M("Sorry, is that under any name?", D("It's under Yaroslav, thank you.", intent="question"), sends=1),
+    ])
+    res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
+    assert res.problems == []
+
+
+def test_quiet_rule_needs_nothing_pending(tmp_path):
+    from agent.brain import D
+    from sim.scenarios import AGREE, M, REST, RESTATED, Scenario, opening
+    scn = Scenario("pending_close", "a pleasantry while an owner question is open still gets an answer", [
+        opening(),
+        M(f"Yes, 17:00 for two is fine at {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED),
+        M("Lovely, see you then!", D("Thank you, see you at 17:00.", intent="closing"), sends=1),
+        M("Oh, and a contact number please.", D("Of course, let me just check that with Yaroslav.",
+                                                 action="ask_owner", intent="asks_info", needs_owner=["phone"]),
+          sends=1, asks=["phone"]),
+        M("Thanks!", D("Thank you for bearing with me, I'm still checking.", intent="closing"), sends=1),
+    ])
+    res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
+    assert res.problems == []

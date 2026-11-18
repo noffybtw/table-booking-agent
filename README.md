@@ -15,7 +15,7 @@ Python 3.12. Packages: telethon, openai, httpx, pydantic, python-dotenv, edge-tt
 | `OWNER_BOT_TOKEN`, `OWNER_CHAT_ID` | the bot where the agent asks me things |
 
 ```
-python run.py --mode sim --scenario all            # 13 scripted managers, offline, scripted model
+python run.py --mode sim --scenario all            # 14 scripted managers, offline, scripted model
 python run.py --mode sim --scenario happy --llm groq   # the same scripts against the real model
 python run.py --mode dry                           # you type as the manager, the real model answers, nothing is sent
 python run.py --mode test --now 2026-11-19T08:00   # Telegram, manager = @noffybtw (my second account)
@@ -41,7 +41,8 @@ Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.js
    - a restaurant name or an offered time counts only if it appears in the manager's own words;
    - any time other than 17:00 goes to me with two buttons ("18:30 подходит" / "Только 17:00"); the agent never accepts it alone;
    - name, phone or email go to me only if the manager asked for them;
-   - the final restatement is built by code from confirmed slots. If the manager agreed but never said the restaurant's name, the agent asks for it first.
+   - the final restatement is built by code from confirmed slots. If the manager agreed but never said the restaurant's name, the agent asks for it first;
+   - after the restatement the agent answers one thank-you or goodbye. Further thanks, goodbyes and emoji get no reply, and the decision line says why. Questions and changes always get an answer.
 5. Every outgoing text goes through `agent/guard.py`. It fixes long dashes and curly quotes and blocks: phone numbers and emails that are not mine, times and dates nobody said, a party size other than two, capitalised names that are not in the facts or the chat, payment promises, and first-person experience ("I did catch it", "I've been there"). A blocked draft is rewritten once with the problem named, then tried on the fallback model, then replaced by a safe template, and I get a note. A blocked text is never sent.
 6. If I don't answer, the agent reminds me after 3 minutes and after 10 tells the manager it is still confirming. If the manager goes quiet, it sends one follow-up after 10 minutes and a second after 30, then only waits.
 7. My bot also gets a silent copy of every message and takes `/pause`, `/resume`, `/stop`, `/status`.

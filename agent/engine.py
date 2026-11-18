@@ -27,6 +27,7 @@ FOLLOW_UP_2 = "Hello again. Whenever you have a moment, I'd be grateful for a qu
 BAD_VOICE = "Sorry, I couldn't play that voice note. Could you type it, please?"
 TECH_HOLD = "Thank you - give me just a moment, please."
 CLOSING = "Thank you very much, have a lovely day."
+PLEASANTRY = ("closing", "greeting")
 
 MANAGER_LABEL = {"text": "MANAGER", "voice": "MANAGER (voice note, transcribed)", "media": "MANAGER"}
 
@@ -48,13 +49,14 @@ class Engine:
         self.agreed = False
         self.asked_restaurant = False
         self.restated_sig: tuple | None = None
+        self.closed = False                  # one closing reply went out after the restatement
         self.n_out = self.n_in = self.turn = 0
         self.followups = 0
         self.gen: dict[str, int] = {"silence": 0}
         self.paused = self.stopped = False
         self.held: list[Event] = []
         self.last_voice = False
-        self.retry: tuple[str, bool] | None = None
+        self.retry: tuple[str, bool, list[str] | None] | None = None
         self.brain_down_sent = False
 
     # ---------- public ----------
@@ -87,7 +89,8 @@ class Engine:
     def state_text(self) -> str:
         pend = ", ".join(self.pending) or "none"
         return (f"STATE: phase {self.phase}; manager agreed: {'yes' if self.agreed else 'no'}; "
-                f"pending owner questions: {pend}; final restatement sent: {'yes' if self.restated_sig else 'no'}.")
+                f"pending owner questions: {pend}; final restatement sent: {'yes' if self.restated_sig else 'no'}; "
+                f"closing reply sent: {'yes' if self.closed else 'no'}.")
 
     # ---------- events ----------
 
@@ -149,7 +152,8 @@ class Engine:
             event = "The manager sent a sticker or photo with no text. Ask one short clarifying question."
         else:
             event = "New message(s) from the manager above. React to all of it in one reply."
-        return acts + self._respond(event, self.last_voice)
+        said = None if ev.kind == "manager_edit" else [m.text or "" for m in msgs]
+        return acts + self._respond(event, self.last_voice, said)
 
     def _owner(self, ev: Event) -> list:
         acts: list = []
@@ -218,8 +222,7 @@ class Engine:
         if name == "brain_retry":
             if not self.retry or ev.gen != self.gen.get("retry"):
                 return []
-            event, voice = self.retry
-            return self._respond(event, voice)
+            return self._respond(*self.retry)
         return [Log("note", {"text": f"unknown timer {name}"})]
 
     def _command(self, cmd: str) -> list:
@@ -257,11 +260,12 @@ class Engine:
                                       slots=d.slots.model_dump(exclude_none=True), note=note)))
         return d
 
-    def _respond(self, event: str, voice: bool) -> list:
+    def _respond(self, event: str, voice: bool, said: list[str] | None = None) -> list:
+        """`said` is the manager's text of this turn; None for owner answers and edits."""
         acts: list = []
         d = self._decide(event, acts)
         if d is None:
-            self.retry = (event, voice)
+            self.retry = (event, voice, said)
             acts.append(Log("decision", {"understood": "-", "decided": "model unavailable, retry in "
                                          f"{self.t.brain_retry:.0f}s"}))
             self.gen["retry"] = self.gen.get("retry", 0) + 1  # one pending retry at a time
@@ -274,9 +278,9 @@ class Engine:
             return acts
         self.retry = None
         self.brain_down_sent = False
-        return acts + self._apply(d, event, voice)
+        return acts + self._apply(d, event, voice, said)
 
-    def _apply(self, d: Decision, event: str, voice: bool) -> list:
+    def _apply(self, d: Decision, event: str, voice: bool, said: list[str] | None = None) -> list:
         acts: list = []
         f = self.facts
         notes: list[str] = []
@@ -316,6 +320,11 @@ class Engine:
 
         new_keys = [k for k in needs if k not in self.pending and not (k in ("guest_name", "phone") and f.get(k))]
         last = self.manager_texts[-1] if self.manager_texts else ""
+        sig = restate.signature(f)
+        restate_due = self.agreed and (self.restated_sig is None or (self.phase == CONFIRMED and sig != self.restated_sig))
+        quiet = self._pleasantry(d, said, new_keys, restate_due)
+        if quiet:
+            notes.append(quiet)
         acts.append(Log("decision", {"understood": d.understood, "intent": d.intent,
                                      "decided": d.decision + (f" [code: {'; '.join(notes)}]" if notes else ""),
                                      "action": d.action, "owner_keys": new_keys}))
@@ -327,9 +336,10 @@ class Engine:
                      Schedule("owner_reping", self.t.owner_reping, g, k), Schedule("owner_wait", self.t.owner_wait, g, k)]
 
 
+        if quiet:
+            return acts
+
         reply = d.reply.strip()
-        sig = restate.signature(f)
-        restate_due = self.agreed and (self.restated_sig is None or (self.phase == CONFIRMED and sig != self.restated_sig))
         if restate_due:
             text = restate.build(f, variant=self.turn, correction=self.restated_sig is not None)
             if text:
@@ -352,8 +362,11 @@ class Engine:
 
         if not reply and self.phase == CONFIRMED and d.action == "final_restatement":
             # already restated and nothing changed: a short closing instead of silence
-            return acts + self._say(CLOSING, "", "booking already restated, short closing", fallback=CLOSING,
-                                    voice=voice, rearm=False)
+            n_before = self.n_out
+            acts += self._say(CLOSING, "", "booking already restated, short closing", fallback=CLOSING,
+                              voice=voice, rearm=False)
+            self.closed = self.closed or self.n_out > n_before
+            return acts
         if d.action in ("wait", "end") or not reply:
             if new_keys:
                 acts += self._say(self._hold(), event, "holding line while the owner is asked", fallback=self._hold(),
@@ -361,7 +374,24 @@ class Engine:
             return acts
         why = d.decision or d.action
         fallback = self._hold() if (new_keys or self.pending) else None
-        return acts + self._say(reply, event, why, fallback=fallback, voice=voice)
+        n_before = self.n_out
+        acts += self._say(reply, event, why, fallback=fallback, voice=voice)
+        if self.phase == CONFIRMED and d.intent in PLEASANTRY and self.n_out > n_before:
+            self.closed = True
+        return acts
+
+    def _pleasantry(self, d: Decision, said: list[str] | None, new_keys: list[str], restate_due: bool) -> str | None:
+        """After the restatement and one closing reply, a pure pleasantry from the manager gets no answer.
+        Returns the reason for the decision line, or None when the message must be answered."""
+        if self.phase != CONFIRMED or not self.closed or said is None:
+            return None
+        if new_keys or self.pending or restate_due or any("?" in t for t in said):
+            return None
+        # the closing template again (final_restatement with no reply and nothing changed) is a pleasantry too
+        again = d.action == "final_restatement" and not d.reply.strip()
+        if d.intent not in PLEASANTRY and not again:
+            return None
+        return "no reply: closing already sent after the restatement; a pleasantry with no question, nothing pending"
 
     def _restate(self, text: str, sig: tuple) -> list:
         text = guard.fix(text)
@@ -371,6 +401,7 @@ class Engine:
                     NotifyOwner(f"Финальное подтверждение не прошло проверку: {'; '.join(probs)}")]
         self.restated_sig = sig
         self.phase = CONFIRMED
+        self.closed = False  # a corrected restatement may get its own thank-you
         self.gen["silence"] += 1
         why = "manager agreed; restatement built by code from confirmed slots: " + self._slot_summary()
         self.n_out += 1
