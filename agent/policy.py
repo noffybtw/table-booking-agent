@@ -33,6 +33,20 @@ def norm_key(key: str) -> str:
     return KEY_ALIASES.get(k, k or "question")
 
 
+ASKED_RE = {
+    "guest_name": re.compile(r"\bname\b|\bunder (?:what|which|whose)\b|\bwho(?:'s| is) (?:it|the booking) for\b|"
+                             r"\bwhose\b", re.I),
+    "phone": re.compile(r"\bphone|\bnumber\b|\bcontact\b|\bmobile\b|\breach you\b|\bcall you\b|\btel\b", re.I),
+    "email": re.compile(r"\be-?mail\b", re.I),
+}
+
+
+def manager_asked(key: str, manager_texts: list[str]) -> bool:
+    """Personal details go to the owner only when the manager asked for them, not because the model wants them."""
+    rx = ASKED_RE.get(key)
+    return rx is None or any(rx.search(t) for t in manager_texts)
+
+
 def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, list[tuple[str, str]], bool]:
     """Russian question for the owner, inline buttons (label, value), and whether to offer a contact button."""
     said = f"\nМенеджер написал: «{manager_last.strip()[:300]}»" if manager_last.strip() else ""
@@ -63,7 +77,9 @@ def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None,
                 facts.drop("owner_note")
                 return f"{offered} works, please book it for {offered}."
         if value == "only":
-            note = f"Only {facts.get('time')} works. Ask politely whether {facts.get('time')} might free up."
+            instead = f"{offered} does not work, only" if offered else "Only"
+            note = (f"{instead} {facts.get('time')} works. Decline politely and ask whether {facts.get('time')} "
+                    f"might free up.")
             facts.set("owner_note", note, "owner", turn)
             return note
         facts.set("owner_note", text, "owner", turn)

@@ -217,6 +217,9 @@ EXPERIENCE_RES = [re.compile(p, re.I) for p in (
     r"\bI (?:still )?remember\b",
     r"\blast time I\b",
     r"\bwhat a (?:game|match|goal|result)\b",
+    r"\b(?:it|that) was (?:quite |such |really |truly |a |an |some )*(?:\w+ )?(?:match|game|result|goal|show|film)\b",
+    r"\bquite the (?:game|match|result|goal)\b",
+    r"\bI (?:missed|skipped) (?:it|that|the)\b",
 )]
 
 PAY_WORDS = re.compile(r"\b(deposit|card|payment|pay|paid|prepay|pre-pay|charge|fee|iban|sort code|account number|"

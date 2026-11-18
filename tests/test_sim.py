@@ -65,3 +65,21 @@ def test_pause_holds_then_resume_answers(tmp_path):
     ])
     res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
     assert res.problems == []
+
+
+def test_model_down_schedules_one_retry_at_a_time(tmp_path):
+    from agent.brain import BrainDown, D
+    from sim.scenarios import M, Scenario, opening, silence
+    down = BrainDown("429 on both")
+    scn = Scenario("down", "long outage", [
+        opening(),
+        M("Yes, 17:00 for two is fine.", down, sends=1),
+        M("Hello?", down, down, sends=0),  # the 30 s retry fires first, then this message: both fail
+        silence(0.5, down, sends=0),
+        silence(0.5, D("Thank you, could I take the restaurant's name for my note?"), sends=1),
+    ])
+    brain = FakeBrain()
+    res = harness.run(scn, brain, tmp_path, echo=lambda s: None)
+    assert res.problems == []
+    # a stale retry would make an extra model call, and the strict FakeBrain would fail on it
+    assert len(brain.calls) == 6

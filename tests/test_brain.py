@@ -123,7 +123,7 @@ def test_400_on_schema_falls_back_to_json_object():
 
 
 def test_both_down_raises():
-    b, _ = brain({"openai/gpt-oss-120b": [503, 503], "qwen/qwen3.8-27b": [429]})
+    b, _ = brain({"openai/gpt-oss-120b": [503, 503], "qwen/qwen3.8-27b": [429, 429]})
     with pytest.raises(BrainDown):
         b.decide(facts(), [], "open")
 
@@ -159,3 +159,25 @@ def test_prompt_carries_facts_and_note():
     user = seen["messages"][1]["content"]
     assert "Thursday 19 November 2026" in user and "MANAGER: hi" in user and "BLOCKED" in user
     assert seen["temperature"] == 0.3
+
+
+def test_short_429_cooldown_beats_a_long_fallback_wait():
+    """The real failure from the first Groq sim: primary cooling down 1 s, fallback paced for 57 s."""
+    t = [0.0]
+    g = Groq({"openai/gpt-oss-120b": [GOOD]})
+    b = GroqBrain("k", http_client=httpx.Client(transport=httpx.MockTransport(g)),
+                  sleep=lambda s: t.__setitem__(0, t[0] + s), monotonic=lambda: t[0])
+    b.blocked_until["openai/gpt-oss-120b"] = 1.0
+    b.ready_at["qwen/qwen3.8-27b"] = 57.0
+    b.decide(facts(), [], "open")
+    assert [m for m, _ in g.calls] == ["openai/gpt-oss-120b"] and 0.9 <= t[0] <= 1.1
+
+
+def test_everything_far_away_is_brain_down():
+    g = Groq({})
+    b = GroqBrain("k", http_client=httpx.Client(transport=httpx.MockTransport(g)), sleep=lambda s: None,
+                  monotonic=lambda: 0.0)
+    b.blocked_until = {"openai/gpt-oss-120b": 90.0, "qwen/qwen3.8-27b": 120.0}
+    with pytest.raises(BrainDown):
+        b.decide(facts(), [], "open")
+    assert g.calls == []

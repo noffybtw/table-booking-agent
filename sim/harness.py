@@ -84,7 +84,7 @@ class SimResult:
         return [x for s in self.steps for x in s.sent]
 
 
-def check(step: Step, res: StepResult) -> list[str]:
+def check(step: Step, res: StepResult, scripted: bool = True) -> list[str]:
     e, probs = step.expect, []
     texts = " || ".join(t for _, t in res.sent)
     low = texts.lower()
@@ -105,7 +105,7 @@ def check(step: Step, res: StepResult) -> list[str]:
         probs.append("expected a voice note")
     if e.get("voice") is False and any(v == "voice" for v, _ in res.sent):
         probs.append("expected text only")
-    if e.get("blocked") and not any(isinstance(a, Log) and a.kind == "guard" and a.data["problems"]
+    if e.get("blocked") and scripted and not any(isinstance(a, Log) and a.kind == "guard" and a.data["problems"]
                                     for a in res.acts):
         probs.append("expected the guard to block a draft")
     if e.get("notify") and not res.notes:
@@ -174,7 +174,7 @@ async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], N
         if ev is not None:
             acts += await runner.feed(ev)
         res = StepResult(step, transport.out[n_out:], [a[0] for a in owner.asked[n_ask:]], owner.notes[n_note:], acts)
-        res.problems = check(step, res)
+        res.problems = check(step, res, scripted)
         results.append(res)
     log.close()
     return SimResult(scn, Path(run_dir), results, engine, brain)

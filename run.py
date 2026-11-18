@@ -49,14 +49,14 @@ def stamp(now: datetime) -> str:
     return clock.london_now(now).strftime("%Y%m%d-%H%M%S")
 
 
-def make_brain(llm: str, secrets):
+def make_brain(llm: str, secrets, max_wait: float = 30.0):
     from agent.brain import FakeBrain, GroqBrain, simple_rules
     if llm == "fake":
         return FakeBrain(default=simple_rules)
     key = secrets.get("GROQ_API_KEY")
     if not key:
         raise SafetyError("GROQ_API_KEY is missing in .env")
-    return GroqBrain(key)
+    return GroqBrain(key, max_wait=max_wait)
 
 
 class OffsetClock:
@@ -88,7 +88,8 @@ def cmd_sim(args, secrets) -> int:
     echo = (lambda s: None) if args.quiet else print
     for name in names:
         scn = BY_NAME[name]
-        brain = FakeBrain() if llm == "fake" else make_brain("groq", secrets)
+        # scripted steps arrive back to back, far faster than a manager types: let the brain wait for its budget
+        brain = FakeBrain() if llm == "fake" else make_brain("groq", secrets, max_wait=65)
         rd = RUNS_DIR / f"sim-{st}-{name}" if len(names) > 1 or llm == "fake" else RUNS_DIR / f"sim-{st}-{name}-groq"
         res = harness.run(scn, brain, rd, echo=echo, scripted=(llm == "fake"))
         problems = res.problems

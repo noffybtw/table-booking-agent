@@ -25,6 +25,9 @@ def test_clean_opening_passes(facts):
 
 def test_real_slip_watched_the_match(facts):
     assert "experience" in rules("I did catch it, quite the game.", facts)
+    assert "experience" in rules("It was quite a match indeed.", facts)  # the Groq sim slip
+    assert "experience" in rules("Quite the game, wasn't it?", facts)
+    assert "experience" in rules("I missed it, but I'm sure it was quite something.", facts)
     assert rules("Ha, I'll leave the football to the experts.", facts) == set()
 
 
@@ -99,7 +102,7 @@ def test_every_engine_template_passes(facts):
         engine.OPENING.format(greeting="Good afternoon", who="Yaroslav", time=t),
         engine.HOLD.format(who="Yaroslav"), engine.STILL_CHECKING.format(who="Yaroslav"),
         engine.SORRY_WAIT + engine.NAME_ONLY.format(name="Yaroslav"), engine.FOLLOW_UP_1.format(time=t),
-        engine.FOLLOW_UP_2.format(time=t), engine.BAD_VOICE, engine.TECH_HOLD, restate.ASK_RESTAURANT,
+        engine.FOLLOW_UP_2.format(time=t), engine.BAD_VOICE, engine.TECH_HOLD, engine.CLOSING, restate.ASK_RESTAURANT,
     ]
     for text in templates:
         assert guard.check(guard.fix(text), facts, []) == [], text

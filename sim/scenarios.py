@@ -61,10 +61,12 @@ SCENARIOS = [
     Scenario("happy", "agreement in one go, the manager names the restaurant", [
         opening(),
         M(f"Good morning! {REST} here. Yes, a table for two at 17:00 today is no problem at all.",
-          D(**AGREE, restaurant_name=REST, understood="table for two at 17:00 is fine, restaurant named"),
-          **RESTATED),
+          D(**AGREE, restaurant_name=REST, needs_owner=["guest_name", "phone"],
+            understood="table for two at 17:00 is fine, restaurant named"),
+          **RESTATED, asks_none=True),
         M("Lovely, see you later!", D("Thank you very much, see you at 17:00.", intent="closing",
                                       decision="booking done, short closing"), sends=1, voice=False),
+        M("Cheers!", D(**AGREE), sends=1, says=["Thank you"]),
     ]),
     Scenario("counter_offer", "fully booked at 17:00, 18:30 offered, the owner says only 17:00", [
         opening(),

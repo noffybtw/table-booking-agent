@@ -98,12 +98,13 @@ class GroqBrain:
 
     def __init__(self, api_key: str, primary: str = PRIMARY_MODEL, fallback: str = FALLBACK_MODEL,
                  http_client=None, timeout: float = 20.0, sleep: Callable[[float], None] = time.sleep,
-                 monotonic: Callable[[], float] = time.monotonic, low_tokens: int = 2500, max_wait: float = 20.0):
+                 monotonic: Callable[[], float] = time.monotonic, low_tokens: int = 2500, max_wait: float = 30.0,
+                 pace_wait: float = 10.0):
         self.client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL, timeout=timeout, max_retries=0,
                              http_client=http_client)
         self.primary, self.fallback = primary, fallback
         self.sleep, self.mono = sleep, monotonic
-        self.low_tokens, self.max_wait = low_tokens, max_wait
+        self.low_tokens, self.max_wait, self.pace_wait = low_tokens, max_wait, pace_wait
         self.ready_at: dict[str, float] = {}     # pacing: low remaining tokens, worth a short wait
         self.blocked_until: dict[str, float] = {}  # 429: use the other model meanwhile
         self.no_schema: set[str] = set()
@@ -129,57 +130,72 @@ class GroqBrain:
                 "ratelimit": hdr}
         return comp.choices[0].message.content or "", meta
 
+    def _wait(self, model: str) -> tuple[float, float]:
+        now = self.mono()
+        return max(0.0, self.blocked_until.get(model, 0) - now), max(0.0, self.ready_at.get(model, 0) - now)
+
+    def _pick(self, live: list[str]) -> tuple[str, float]:
+        """The preferred model unless it is cooling down after a 429 or would need more than pace_wait of pacing;
+        otherwise whichever model is ready first."""
+        for m in live:
+            blocked, pace = self._wait(m)
+            if blocked == 0 and pace <= self.pace_wait:
+                return m, pace
+        m = min(live, key=lambda x: max(self._wait(x)))
+        return m, max(self._wait(m))
+
     def decide(self, facts: FactStore, transcript: list[str], event: str, state_text: str = "",
                note: str | None = None, prefer_fallback: bool = False) -> Decision:
         messages = build_messages(facts, transcript, event, state_text, note)
         models = [self.fallback] if prefer_fallback else [self.primary, self.fallback]
+        attempts = {m: 0 for m in models}
         errors: list[str] = []
-        for i, model in enumerate(models):
-            last = i == len(models) - 1
-            blocked = self.blocked_until.get(model, 0) - self.mono()
-            if blocked > 0 and not last:
-                errors.append(f"{model}: 429 cooldown {blocked:.0f}s, using {models[i + 1]}")
-                continue
-            wait = max(self.ready_at.get(model, 0) - self.mono(), blocked)
+        for _ in range(2 * len(models) + 2):
+            live = [m for m in models if attempts[m] < 2]
+            if not live:
+                break
+            model, wait = self._pick(live)
             if wait > self.max_wait:
                 errors.append(f"{model}: rate limit, ready in {wait:.0f}s")
-                continue
+                break
             if wait > 0:
                 self.sleep(wait)
-            for _attempt in (1, 2):
-                try:
-                    content, meta = self._call(model, messages)
-                except openai.RateLimitError as e:
-                    ra = _secs(e.response.headers.get("retry-after") if e.response is not None else None, 10)
-                    self.blocked_until[model] = self.mono() + max(ra, 1.0)
-                    errors.append(f"{model}: 429, retry after {ra:.0f}s")
-                    break
-                except openai.InternalServerError as e:
-                    errors.append(f"{model}: {e.status_code}")
-                    continue
-                except openai.APITimeoutError:
-                    errors.append(f"{model}: timeout")
-                    continue
-                except openai.APIConnectionError as e:
-                    errors.append(f"{model}: connection error {type(e.__cause__).__name__}")
-                    continue
-                except openai.BadRequestError as e:
-                    if model not in self.no_schema:
-                        self.no_schema.add(model)
-                        errors.append(f"{model}: 400 on json_schema, switching to json_object")
-                    else:
-                        errors.append(f"{model}: 400 {str(e)[:120]}")
-                    continue
-                except openai.APIStatusError as e:
-                    errors.append(f"{model}: {e.status_code}")
-                    break
-                try:
-                    d = parse_decision(content)
-                except ValueError as e:
-                    errors.append(f"{model}: invalid JSON ({str(e)[:80]})")
-                    continue
-                self.last_meta = meta | {"errors": errors}
-                return d
+            attempts[model] += 1
+            try:
+                content, meta = self._call(model, messages)
+            except openai.RateLimitError as e:
+                ra = _secs(e.response.headers.get("retry-after") if e.response is not None else None, 10)
+                self.blocked_until[model] = self.mono() + max(ra, 1.0)
+                errors.append(f"{model}: 429, retry after {ra:.0f}s")
+                continue
+            except openai.InternalServerError as e:
+                errors.append(f"{model}: {e.status_code}")
+                continue
+            except openai.APITimeoutError:
+                errors.append(f"{model}: timeout")
+                continue
+            except openai.APIConnectionError as e:
+                errors.append(f"{model}: connection error {type(e.__cause__).__name__}")
+                continue
+            except openai.BadRequestError as e:
+                if model not in self.no_schema:
+                    self.no_schema.add(model)
+                    attempts[model] -= 1  # the switch to json_object is not a failed try
+                    errors.append(f"{model}: 400 on json_schema, switching to json_object")
+                else:
+                    errors.append(f"{model}: 400 {str(e)[:120]}")
+                continue
+            except openai.APIStatusError as e:
+                errors.append(f"{model}: {e.status_code}")
+                attempts[model] = 2
+                continue
+            try:
+                d = parse_decision(content)
+            except ValueError as e:
+                errors.append(f"{model}: invalid JSON ({str(e)[:80]})")
+                continue
+            self.last_meta = meta | {"errors": errors}
+            return d
         self.last_meta = {"errors": errors}
         raise BrainDown("; ".join(errors) or "no model available")
 

@@ -25,6 +25,7 @@ FOLLOW_UP_1 = "Sorry to chase - just checking whether a table for two at {time} 
 FOLLOW_UP_2 = "Hello again. Whenever you have a moment, I'd be grateful for a quick reply about the table for two at {time} today."
 BAD_VOICE = "Sorry, I couldn't play that voice note. Could you type it, please?"
 TECH_HOLD = "Thank you - give me just a moment, please."
+CLOSING = "Thank you very much, have a lovely day."
 
 MANAGER_LABEL = {"text": "MANAGER", "voice": "MANAGER (voice note, transcribed)", "media": "MANAGER"}
 
@@ -94,7 +95,7 @@ class Engine:
         tmpl = OPENING.format(greeting=clock.greeting(now), who=self.who, time=self.facts.get("time"))
         event = (f"Open the conversation now. In London it is {clock.hhmm(now)}, so greet with "
                  f"'{clock.greeting(now)}'. Say you are writing on behalf of {self.who} and ask for a table for two "
-                 f"today at {self.facts.get('time')}. One message.")
+                 f"today at {self.facts.get('time')}. One message, for example: \"{tmpl}\"")
         acts: list = []
         d = self._decide(event, acts)
         draft = d.reply if d and d.reply.strip() else tmpl
@@ -210,7 +211,7 @@ class Engine:
             return self._say(text, "", f"owner has not answered {key} for 10 minutes", fallback=SORRY_WAIT,
                              rearm=False)
         if name == "brain_retry":
-            if not self.retry:
+            if not self.retry or ev.gen != self.gen.get("retry"):
                 return []
             event, voice = self.retry
             return self._respond(event, voice)
@@ -258,7 +259,8 @@ class Engine:
             self.retry = (event, voice)
             acts.append(Log("decision", {"understood": "-", "decided": "model unavailable, retry in "
                                          f"{self.t.brain_retry:.0f}s"}))
-            acts.append(Schedule("brain_retry", self.t.brain_retry, 0))
+            self.gen["retry"] = self.gen.get("retry", 0) + 1  # one pending retry at a time
+            acts.append(Schedule("brain_retry", self.t.brain_retry, self.gen["retry"]))
             if not self.brain_down_sent:
                 self.brain_down_sent = True
                 acts.append(NotifyOwner("Groq недоступен, агент ждёт и пробует снова каждые 30 с."))
@@ -288,8 +290,12 @@ class Engine:
         needs = []
         for k in d.needs_owner:
             k = policy.norm_key(k)
-            if k not in needs:
-                needs.append(k)
+            if k in needs:
+                continue
+            if not policy.manager_asked(k, self.manager_texts):
+                notes.append(f"not asking the owner for {k}: the manager did not ask for it")
+                continue
+            needs.append(k)
         if time_open and "alternative_time" not in needs and "alternative_time" not in self.pending:
             needs.append("alternative_time")
             notes.append(f"manager offered {offered}: another time is {self.who}'s call, asking")
@@ -339,6 +345,10 @@ class Engine:
                 self.asked_restaurant = True
                 return acts
 
+        if not reply and self.phase == CONFIRMED and d.action == "final_restatement":
+            # already restated and nothing changed: a short closing instead of silence
+            return acts + self._say(CLOSING, "", "booking already restated, short closing", fallback=CLOSING,
+                                    voice=voice, rearm=False)
         if d.action in ("wait", "end") or not reply:
             if new_keys:
                 acts += self._say(self._hold(), event, "holding line while the owner is asked", fallback=self._hold(),

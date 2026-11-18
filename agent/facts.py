@@ -105,7 +105,9 @@ class FactStore:
             note = DESCRIPTIONS.get(k, k.replace("_", " "))
             conf = ", confirmed by the manager" if f.confirmed else ""
             lines.append(f"- {k}: {v}  ({note}; from {f.source}{conf})")
-        missing = [k for k in ("guest_name", "phone", "restaurant_name") if k not in self.known()]
+        missing = [k for k in ("guest_name", "phone") if k not in self.known()]
         if missing:
-            lines.append(f"- unknown so far: {', '.join(missing)}")
+            lines.append(f"- {' and '.join(missing)}: not known; ask the owner only if the manager asks for it")
+        if "restaurant_name" not in self.known():
+            lines.append("- restaurant_name: not known yet (the manager may say it)")
         return "\n".join(lines)
