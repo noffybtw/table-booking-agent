@@ -125,5 +125,8 @@ class RunLog:
         fail = f" | NOT SENT: {error}" if error else ""
         self.line(f'OUT agent #{act.n}{tag}: "{short(act.text, 400)}" | why: {short(act.why, 300)}{fail}')
 
+    def record_note(self, text: str) -> None:
+        self.record(Log("note", {"text": text}))
+
     def close(self) -> None:
         self._flush_in()

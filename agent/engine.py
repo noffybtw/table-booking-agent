@@ -221,6 +221,8 @@ class Engine:
         if cmd == "stop":
             self.stopped = True
             return [Log("note", {"text": "owner: /stop, the agent sends nothing more"}), Stop("owner /stop")]
+        if cmd == "status":
+            return [NotifyOwner(f"{self.state_text()} Сообщений: от менеджера {self.n_in}, от агента {self.n_out}.")]
         if cmd == "pause":
             self.paused = True
             return [Log("note", {"text": "owner: /pause"})]
