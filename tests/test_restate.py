@@ -55,3 +55,13 @@ def test_verify_catches_a_wrong_time():
     f.set("restaurant_name", "The Crown & Anchor", "manager", 1, confirmed=True)
     bad = restate.build(f).replace("17:00", "18:30")
     assert restate.verify(bad, f)
+
+
+@pytest.mark.parametrize("answer,time", [("да, 18:30 ок", "18:30"), ("ok", "18:30"), ("нет", "17:00"),
+                                         ("Только 17:00", "17:00"), ("18:30", "18:30")])
+def test_owner_free_text_on_another_time(answer, time):
+    from agent import policy
+    f = FactStore.for_task(clock.parse_now("2026-11-19T08:00"))
+    f.set("offered_time", "18:30", "manager", 1)
+    policy.apply_owner_answer(f, "alternative_time", answer, None, False, 2)
+    assert f.get("time") == time

@@ -276,7 +276,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                     break
                 if (t.hour, t.minute) >= (hh, mm) and engine.phase != CONFIRMED:
                     log.record_note(f"{args.until} London reached without a confirmed booking, ending the run")
-                    await owner.notify(f"Время вышло ({args.until} Лондон), бронь не подтверждена.")
+                    await runner._safe(owner.notify(f"Время вышло ({args.until} Лондон), бронь не подтверждена."))
                     break
         finally:
             timers.cancel_all()

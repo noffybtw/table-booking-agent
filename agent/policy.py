@@ -41,6 +41,10 @@ ASKED_RE = {
 }
 
 
+YES_RE = re.compile(r"^\s*(да|ага|ок|окей|ok|okay|yes|yep|подходит|годится|давай|согласен|норм)\b", re.I)
+NO_RE = re.compile(r"^\s*(нет|не подходит|только|no|nope|only)\b", re.I)
+
+
 def manager_asked(key: str, manager_texts: list[str]) -> bool:
     """Personal details go to the owner only when the manager asked for them, not because the model wants them."""
     rx = ASKED_RE.get(key)
@@ -71,6 +75,10 @@ def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None,
     text = (text or "").strip()
     if key == "alternative_time":
         offered = facts.get("offered_time")
+        if value is None and YES_RE.match(text):
+            value = "accept"
+        elif value is None and NO_RE.match(text):
+            value = "only"
         if value == "accept" or (offered and guard.norm_time(text) == offered):
             if offered:
                 facts.set("time", offered, "owner", turn)
