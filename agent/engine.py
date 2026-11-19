@@ -552,8 +552,9 @@ class Engine:
                               voice=voice)
             return acts
         if restate_due:
-            # with a profile "at your restaurant" comes only after 10 minutes of silence (_restate_on_silence)
-            if (self.asked_restaurant and said is not None and not self.profile
+            # on the turn that gives a profile field "at your restaurant" comes only after 10 minutes of silence
+            # (_restate_on_silence)
+            if (self.asked_restaurant and said is not None and not self.from_profile
                     and "restaurant_name" in restate.missing(f)):
                 self.unnamed = True
                 acts.append(NotifyOwner(texts.t("no_restaurant")))

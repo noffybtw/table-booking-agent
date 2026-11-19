@@ -223,3 +223,12 @@ def test_profile_restates_at_your_restaurant_after_10_minutes_of_silence():
     g = [a for a in acts if isinstance(a, Schedule) and a.name == "silence"][-1].gen
     said = _restatements(e.handle(Event("timer", text="silence", gen=g)))
     assert len(said) == 1 and "at your restaurant" in said[0] and e.n_restated == 1
+
+
+def test_profile_restates_at_once_when_the_manager_does_not_name_the_restaurant():
+    e = with_profile(PROFILE, D("Lovely, thank you!", action="reply", intent="agreed", manager_agreed=True),
+                     D("Thank you!", action="final_restatement", intent="agreed", manager_agreed=True))
+    first = sends(e.handle(Event("manager_message", text="Yes, 17:00 is fine.")))
+    assert any("restaurant's name" in s for s in first) and e.n_restated == 0
+    said = _restatements(e.handle(Event("manager_message", text="All booked, see you at 17:00!")))
+    assert len(said) == 1 and "at your restaurant" in said[0] and e.n_restated == 1
