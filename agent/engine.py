@@ -57,6 +57,7 @@ class Engine:
         self.confirm_asked = False           # "Is the table ... all confirmed, then?" went out, no answer yet
         self.answered: str | None = None     # the owner question answered in this turn
         self.restated_sig: tuple | None = None
+        self.before_restate: tuple = (None, NEW, False)  # restated_sig, phase, closed before the last restatement
         self.n_restated = 0
         self.closed = False                  # one closing reply went out after the restatement
         self.n_out = self.n_in = self.turn = 0
@@ -522,6 +523,7 @@ class Engine:
         if probs:
             return [Log("guard", {"text": text, "problems": probs, "result": "restatement blocked"}),
                     NotifyOwner(texts.t("restatement_blocked", problems="; ".join(probs)))]
+        self.before_restate = (self.restated_sig, self.phase, self.closed)
         self.restated_sig = sig
         self.n_restated += 1
         self.phase = CONFIRMED
@@ -533,8 +535,18 @@ class Engine:
         self.n_out += 1
         self.transcript.append(f"AGENT: {text}")
         cls = SendVoice if self.voice_restatement else SendText
-        return [Log("guard", {"text": text, "problems": [], "result": "ok"}), cls(text, why, self.n_out),
-                NotifyOwner(texts.t("booked", text=text))]
+        # the runner tells the owner "booked" once the transport has delivered it
+        return [Log("guard", {"text": text, "problems": [], "result": "ok"}), cls(text, why, self.n_out, restatement=True)]
+
+    def restatement_not_sent(self, text: str) -> None:
+        """The transport failed on the restatement, retry included: the booking is not confirmed, and the next turn
+        restates again."""
+        sig, phase, closed = self.before_restate
+        self.restated_sig, self.phase, self.closed = sig, (phase if sig else OPEN), closed
+        self.n_restated -= 1
+        line = f"AGENT: {text}"
+        if line in self.transcript:
+            del self.transcript[len(self.transcript) - 1 - self.transcript[::-1].index(line)]
 
     def _say(self, draft: str, event: str, why: str, fallback: str | None, voice: bool = False,
              rearm: bool = True) -> list:

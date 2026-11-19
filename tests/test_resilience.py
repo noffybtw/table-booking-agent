@@ -157,3 +157,75 @@ def test_a_slow_model_turn_leaves_the_loop_free_and_stop_works_at_once(tmp_path)
     assert t.sent == []  # the slow turn finished after /stop: its reply was dropped
     log_text = (tmp_path / "decisions.md").read_text()
     assert "STOP owner /stop" in log_text and "stopped, #1 not sent" in log_text
+
+
+class FlakyTransport:
+    """Voice always fails; text fails the first `fails` times."""
+    def __init__(self, fails):
+        self.fails, self.sent = fails, []
+
+    async def send_voice(self, path, caption):
+        raise ConnectionError("upload dropped")
+
+    async def send_text(self, text):
+        if self.fails:
+            self.fails -= 1
+            raise ConnectionError("network drop")
+        self.sent.append(text)
+        return 7
+
+
+class BotOwner(Owner):
+    async def ask(self, *a): pass
+    async def mirror(self, *a): pass
+
+
+def restated_engine(tmp_path, fails):
+    from agent.brain import D, FakeBrain
+    from agent.engine import Engine
+    from agent.runner import Runner
+
+    now = clock.parse_now("2026-11-19T08:00")
+    engine = Engine(FakeBrain([D("Good morning. I'm an assistant - could I book a table for two today at 17:00, please?",
+                                 intent="greeting"),
+                               D(action="final_restatement", intent="agreed", manager_agreed=True,
+                                 restaurant_name="The Ivy")]), FactStore.for_task(now), now=lambda: now)
+    t, owner = FlakyTransport(fails), BotOwner()
+
+    async def tts(text):
+        return str(tmp_path / "r.ogg")
+
+    runner = Runner(engine, t, owner, RunLog(tmp_path, lambda: now), SimpleNamespace(schedule=lambda s: None),
+                    synthesize=tts, send_retry=0)
+
+    async def go():
+        await runner.feed(Event("opening"))
+        await runner.feed(Event("manager_message", text="Yes, 17:00 for two is fine at The Ivy."))
+    asyncio.run(go())
+    return engine, t, owner
+
+
+def test_a_failed_text_send_is_retried_once(tmp_path):
+    engine, t, owner = restated_engine(tmp_path, fails=1)
+    assert len(t.sent) == 2 and "at The Ivy" in t.sent[1]
+    assert engine.phase == "confirmed" and engine.n_restated == 1
+    assert any(n.startswith("Бронь підтверджена") for n in owner.notes)
+    assert "one retry in 0 s" in (tmp_path / "decisions.md").read_text()
+
+
+def test_a_restatement_that_never_went_out_is_not_confirmed_and_the_owner_gets_the_text(tmp_path):
+    from agent.brain import D
+
+    engine, t, owner = restated_engine(tmp_path, fails=4)  # the opening's two tries and the restatement's two
+    assert t.sent == []
+    assert engine.phase != "confirmed" and engine.n_restated == 0 and engine.restated_sig is None
+    assert not any(n.startswith("Бронь підтверджена") for n in owner.notes)
+    hand = [n for n in owner.notes if "вручну" in n]
+    assert len(hand) == 1 and hand[0].endswith("a table for two at 17:00 on Thursday 19 November at The Ivy.")
+    assert not any(line.startswith("AGENT:") and "at The Ivy" in line for line in engine.transcript)
+    log_text = (tmp_path / "decisions.md").read_text()
+    assert "NOT SENT" in log_text and "restatement #2 not delivered" in log_text
+    # the manager's next message gets the restatement again, not only a closing line
+    engine.brain.push(D("Thank you!", intent="question"))
+    acts = engine.handle(Event("manager_message", text="Hello? Did you get that?"))
+    assert any(getattr(a, "restatement", False) for a in acts)

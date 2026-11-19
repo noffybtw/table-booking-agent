@@ -38,6 +38,7 @@ class SendText:
     text: str
     why: str
     n: int = 0
+    restatement: bool = False  # the booking counts as confirmed only once this one is delivered
 
 
 @dataclass
@@ -46,6 +47,7 @@ class SendVoice:
     text: str
     why: str
     n: int = 0
+    restatement: bool = False
 
 
 @dataclass

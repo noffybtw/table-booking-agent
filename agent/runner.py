@@ -85,8 +85,10 @@ async def voice_msg(path: str, msg_id: int | None, transcribe: Callable[[str], A
 
 class Runner:
     def __init__(self, engine: Engine, transport: Transport, owner: OwnerChannel, runlog: RunLog, timers,
-                 synthesize: Callable[[str], Awaitable[str | None]] | None = None, mirror: bool = True):
+                 synthesize: Callable[[str], Awaitable[str | None]] | None = None, mirror: bool = True,
+                 send_retry: float = 5.0):
         self.engine, self.transport, self.owner, self.log, self.timers = engine, transport, owner, runlog, timers
+        self.send_retry = send_retry  # seconds before the one retry of a failed text send
         self.synthesize = synthesize
         self.mirror_on = mirror
         self.stopped = False
@@ -143,16 +145,36 @@ class Runner:
                         self.log.record(Log("note", {"text": f"voice note #{a.n} not sent "
                                                              f"({type(e).__name__}: {str(e)[:120]}), sending it as text"}))
             if via == "text":
-                msg_id = await self.transport.send_text(a.text)
+                msg_id = await self._send_text(a)
         except Exception as e:  # noqa: BLE001 - logged and told to the owner, the run goes on
             error = f"{type(e).__name__}: {str(e)[:160]}"
-            await self._safe(self.owner.notify(texts.t("send_failed", n=a.n, error=error)))
         self.log.sent(a, via, msg_id, error)
+        if error and a.restatement:
+            # not delivered: the booking is not confirmed, the owner gets the exact text to send by hand
+            if self.engine:
+                self.engine.restatement_not_sent(a.text)
+            self.log.record(Log("note", {"text": f"restatement #{a.n} not delivered: the booking is not confirmed; "
+                                                 "the owner got the text to send by hand"}))
+            await self._safe(self.owner.notify(texts.t("send_by_hand", n=a.n, error=error, text=a.text)))
+        elif error:
+            await self._safe(self.owner.notify(texts.t("send_failed", n=a.n, error=error)))
         if not error:
             self.sent.append((via, a.text))
             if self.mirror_on:
                 await self._safe(self.owner.mirror(texts.t(
                     "mirror.agent", n=a.n, voice=texts.t("mirror.voice_tag") if via == "voice" else "", text=a.text)))
+            if a.restatement:
+                await self._safe(self.owner.notify(texts.t("booked", text=a.text)))
+
+    async def _send_text(self, a: SendText | SendVoice) -> int | None:
+        """One retry after a few seconds: a flood wait or a network drop is often gone by then."""
+        try:
+            return await self.transport.send_text(a.text)
+        except Exception as e:  # noqa: BLE001
+            self.log.record(Log("note", {"text": f"message #{a.n} not sent ({type(e).__name__}: {str(e)[:120]}), "
+                                                 f"one retry in {self.send_retry:.0f} s"}))
+        await asyncio.sleep(self.send_retry)
+        return await self.transport.send_text(a.text)
 
     async def _safe(self, coro):
         try:
