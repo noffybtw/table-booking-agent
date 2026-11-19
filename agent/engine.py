@@ -221,9 +221,10 @@ class Engine:
             # the question stays open (and its timers run on); no model turn on an answer that is not taken
             if key == "alternative_time":
                 q, buttons, contact = policy.owner_question(key, self.facts, self.pending.get(key, {}).get("said", ""))
+                again = texts.t("time_again") if self.facts.get("offered_time") else texts.t("time_type")
                 return [Log("owner_answer", {"key": key, "text": text,
                                              "result": "neither yes nor no, question sent again"}),
-                        AskOwner(key, f"{texts.t('time_again')} {q}", buttons, contact)]
+                        AskOwner(key, f"{again} {q}", buttons, contact)]
             return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
                     AskOwner(key, texts.t("name_again"), [], False)]
         summary = "owner note, passed to the model"

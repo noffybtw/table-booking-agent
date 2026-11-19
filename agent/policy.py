@@ -68,10 +68,14 @@ def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, 
     """The question for the owner in OWNER_LANG, inline buttons (label, value), and whether to offer a contact button."""
     said = texts.t("manager_said", text=manager_last.strip()[:300]) if manager_last.strip() else ""
     if key == "alternative_time":
-        offered = facts.get("offered_time") or texts.t("other_time")
+        only = (texts.t("btn.only", time=facts.get("time")), "only")
+        if not facts.get("offered_time"):
+            # no time was taken from the manager's words: an accept button would say nothing, the owner types it
+            q = texts.t("q.alternative_time", offered=texts.t("other_time"), time=facts.get("time"))
+            return f"{q} {texts.t('time_type')}{said}", [only], False
+        offered = facts.get("offered_time")
         q = texts.t("q.alternative_time", offered=offered, time=facts.get("time")) + said
-        return q, [(texts.t("btn.accept", offered=offered), "accept"),
-                   (texts.t("btn.only", time=facts.get("time")), "only")], False
+        return q, [(texts.t("btn.accept", offered=offered), "accept"), only], False
     if key == "reply_help":
         return texts.t("q.reply_help") + said, [], False
     base = texts.t(f"q.{key}") if key in QUESTION_KEYS else texts.t("q.other", key=key.replace("_", " "))
@@ -210,6 +214,31 @@ def find_in(texts: list[str], value: str) -> str | None:
 
 
 MORNING_RE = re.compile(r"\b(?:in the|this) morning\b", re.I)
+_HOUR = r"(1[0-2]|[1-9]|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+# "I can do 7", "7 instead?", "6ish?": a bare hour, read only to back the model's own offered time
+BARE_HOUR_RE = re.compile(r"(?<![\d:.,£$€#+/-])\b" + _HOUR + r"(?:\s*ish)?\b(?![:.,/]?\d)(?!\s*(?:people|persons|"
+                          r"guests|of us|adults|diners|covers|minutes?|mins?|hours?|days?|weeks?|seconds?|%|st\b|nd\b|"
+                          r"rd\b|th\b|a\.?m|p\.?m|o'?\s?clock))", re.I)
+WORD_MINUTES_RE = re.compile(r"\b" + _HOUR + r"[\s-]+(fifteen|thirty|forty[\s-]five)\b", re.I)
+H_MINUTES_RE = re.compile(r"\b([01]?\d|2[0-3])h([0-5]\d)\b", re.I)
+WORD_MINUTE = {"fifteen": 15, "thirty": 30}
+
+
+def bare_hours(text: str) -> set[str]:
+    """Times written as a bare hour ("7", "seven", "6ish"), "six thirty" or "18h30", each as one value (as_written)."""
+    out: set[str] = set()
+    taken: list[tuple[int, int]] = []
+    for m in H_MINUTES_RE.finditer(text or ""):
+        out.add(as_written(guard._cands(int(m.group(1)), int(m.group(2)), None)))
+        taken.append(m.span())
+    for m in WORD_MINUTES_RE.finditer(text or ""):
+        mm = WORD_MINUTE.get(m.group(2).lower(), 45)
+        out.add(as_written(guard._cands(guard._num(m.group(1)), mm, None)))
+        taken.append(m.span())
+    for m in BARE_HOUR_RE.finditer(text or ""):
+        if not any(a <= m.start() < b for a, b in taken):
+            out.add(as_written(guard._cands(guard._num(m.group(1)), 0, None)))
+    return out
 
 
 def as_written(cands: set[str]) -> str:
@@ -246,6 +275,9 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
         cands = next((c for _, c in guard.find_times(slots.offered_time)), set())
         cands |= {f"{(int(c[:2]) + 12) % 24:02d}{c[2:]}" for c in cands if int(c[:2]) % 12}
         said = cands & manager_times(manager_texts)
+        if not said and manager_texts:
+            # "I can do 7": the model's 19:00 stands when its hour is a bare number in the manager's last message
+            said = cands & bare_hours(manager_texts[-1])
         own = guard.norm_time(slots.offered_time)
         t = own if own in said else max(said) if said else None
         if t:

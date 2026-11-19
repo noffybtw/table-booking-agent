@@ -155,3 +155,34 @@ def test_owner_takes_the_offer_and_the_model_says_agreed_still_restates():
     e.brain.push(D("Thank you, 18:30 works for us.", action="final_restatement", intent="agreed", manager_agreed=True))
     out = sends(e.handle(Event("owner_answer", key="alternative_time", value="accept")))
     assert e.agreed and e.n_restated == 1 and "18:30" in out[0]
+
+
+@pytest.mark.parametrize("manager,model_time,want", [
+    ("Sorry, 17:00 is full. I can do 7", "19:00", "19:00"), ("Sorry, 17:00 is full. 7 instead?", "7pm", "19:00"),
+    ("We're full at 17:00. 6ish?", "18:00", "18:00"), ("We're full at 17:00. Six thirty any good?", "18:30", "18:30"),
+    ("17:00 is gone, 18h30 is free", "18:30", "18:30"),
+])
+def test_a_bare_hour_backs_the_model_time(manager, model_time, want):
+    e, asked = offered(manager, model_time)
+    assert e.facts.get("offered_time") == want and want in asked[0].question
+    assert [v for _, v in asked[0].buttons] == ["accept", "only"]
+
+
+@pytest.mark.parametrize("manager,model_time", [
+    ("We're full at 17:00. Six thirty any good?", "18:00"), ("Sorry, 17:00 is full. I can do 7", "20:00"),
+])
+def test_a_bare_hour_backs_only_its_own_hour(manager, model_time):
+    e, asked = offered(manager, model_time)
+    assert e.facts.get("offered_time") is None
+
+
+def test_no_stored_offer_drops_the_accept_button_and_asks_for_the_time():
+    from agent import texts
+    e, asked = offered("Sorry, 17:00 is full. We have something later", "19:00")
+    assert e.facts.get("offered_time") is None and len(asked) == 1
+    assert [v for _, v in asked[0].buttons] == ["only"] and texts.t("time_type") in asked[0].question
+    again = [a for a in e.handle(Event("owner_answer", key="alternative_time", text="так")) if isinstance(a, AskOwner)]
+    assert len(again) == 1 and again[0].question.startswith(texts.t("time_type"))
+    e.brain.push(D("Thank you, 19:00 works for us.", intent="counter_offer"))
+    e.handle(Event("owner_answer", key="alternative_time", text="19:00"))
+    assert e.facts.get("time") == "19:00" and "alternative_time" not in e.pending
