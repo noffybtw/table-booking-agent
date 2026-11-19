@@ -187,6 +187,6 @@ def test_prompt_keeps_the_owner_name_out_of_what_the_agent_says():
     from agent import prompt
     text = prompt.system("Yaroslav")
     assert "check with Yaroslav" not in text and "booking for Yaroslav" not in text
-    assert "Never name the person the table is for" in text
-    assert "you will check and come back shortly" in text
+    assert "Never name anyone" in text and "Never introduce yourself, never call yourself an assistant" in text
+    assert "never say who you check with" in text
     assert "an AI assistant making this booking" in text

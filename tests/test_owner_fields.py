@@ -110,7 +110,7 @@ def test_audit_lists_a_question_for_the_name(tmp_path):
 
 
 def test_holding_line_is_never_sent_twice_word_for_word():
-    same = "I'll check with the guest and get back to you shortly."
+    same = "Let me just check and I'll come back to you shortly."
     e = opened(D(same, action="ask_owner", intent="counter_offer", needs_owner=["alternative_time"],
                  offered_time="18:30"))
     first = sends(e.handle(Event("manager_message", text="Sorry, 17:00 is fully booked, but I can do 18:30.")))

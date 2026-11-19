@@ -35,7 +35,7 @@ class Scenario:
 
 
 def opening(**expect) -> Step:
-    return Step("open", brain=[D("Good morning. I'm an assistant - could I book a table for two today at 17:00, please?", intent="greeting", decision="opening: ask for the table")],
+    return Step("open", brain=[D("Good morning. Could I book a table for two today at 17:00, please?", intent="greeting", decision="opening: ask for the table")],
                 expect={"sends": 1, "says": ["17:00", "two"], "never": ["Yaroslav"], "voice": False} | expect,
                 wait=0)
 

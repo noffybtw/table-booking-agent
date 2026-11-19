@@ -186,7 +186,7 @@ def restated_engine(tmp_path, fails):
     from agent.runner import Runner
 
     now = clock.parse_now("2026-11-19T08:00")
-    engine = Engine(FakeBrain([D("Good morning. I'm an assistant - could I book a table for two today at 17:00, please?",
+    engine = Engine(FakeBrain([D("Good morning. Could I book a table for two today at 17:00, please?",
                                  intent="greeting"),
                                D(action="final_restatement", intent="agreed", manager_agreed=True,
                                  restaurant_name="The Ivy")]), FactStore.for_task(now), now=lambda: now)

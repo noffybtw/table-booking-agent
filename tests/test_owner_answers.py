@@ -14,7 +14,7 @@ def engine(*script):
 
 
 def opened(*script):
-    return engine(D("Good morning. I'm an assistant - could I book a table for two today at 17:00, please?",
+    return engine(D("Good morning. Could I book a table for two today at 17:00, please?",
                     intent="greeting"), *script)
 
 

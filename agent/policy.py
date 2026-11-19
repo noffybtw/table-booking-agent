@@ -413,3 +413,32 @@ def owner_field_questions(text: str, keys, known=()) -> list[tuple[str, str]]:
                 out.append((k, sent))
                 break
     return out
+
+
+# the agent writes as the one booking: no "assistant", no third person, except when the manager asks if it is a bot
+PERSONA_RE = re.compile(r"\bassistant\b|\bthe guests?\b|\bmy client\b|\bon behalf of\b", re.I)
+BOT_QUESTION_RE = re.compile(r"\b(?:bot|robot|ai|a\.i\.|artificial|automated|machine|chat ?gpt|human|real person|"
+                             r"a person|computer)\b", re.I)
+
+
+def asks_if_bot(text: str) -> bool:
+    """The manager asks whether the agent is a bot, an AI or a human."""
+    return bool(text and "?" in text and BOT_QUESTION_RE.search(text))
+
+
+def drop_persona(text: str) -> tuple[str, bool]:
+    """Remove every sentence or " - " clause that says "assistant", "the guest", "my client" or "on behalf of".
+    Returns (text left, removed)."""
+    if not text or not PERSONA_RE.search(text):
+        return text, False
+    kept = []
+    for sent in re.split(r"(?<=[.!?])\s+", text.strip()):
+        parts = re.split(r"\s+-\s+", sent)
+        kept_parts = [p for p in parts if not PERSONA_RE.search(p)]
+        if kept_parts:
+            part = " - ".join(kept_parts)
+            if kept_parts[-1] is not parts[-1] and part[-1] not in ".!?":
+                part += sent[-1] if sent[-1] in ".!?" else "."
+            kept.append(part[0].upper() + part[1:])
+    out = " ".join(kept)
+    return out if re.search(r"[A-Za-z]{2}", out) else "", True

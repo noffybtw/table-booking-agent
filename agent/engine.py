@@ -17,7 +17,7 @@ from agent.facts import FactStore
 
 NEW, OPEN, CONFIRMED = "new", "open", "confirmed"
 
-OPENING = "{greeting}. I'm an assistant - could I book a table for two today at {time}, please?"
+OPENING = "{greeting}. Could I book a table for two today at {time}, please?"
 HOLD = "Let me just check that and come back to you in a moment."
 STILL_CHECKING = "Thank you for bearing with me, I'm still checking that."
 SORRY_WAIT = "Sorry for the wait, I'm still confirming that detail."
@@ -38,6 +38,7 @@ CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
 LET_ME_KNOW_RE = re.compile(r"(?:^|[,;]?\s+-?\s*)(?:and\s+)?(?:please\s+)?(?:do\s+)?let me know if that(?:'s| is)? "
                             r"(?:works?|suits?|okay|ok|all right|alright|fine)(?: for you| with you)?\s*[.!]*\s*$", re.I)
 OWNER_FIELD_GUARD = "guard: owner-held field asked from the manager, template used"
+PERSONA_GUARD = "guard: assistant or third-person wording, clause removed"
 FIELD_WORDS = {"guest_name": "name", "phone": "contact number", "email": "email"}
 DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
 CHECKING_RE = re.compile(r"\b(?:check\w*|get back|come back|be back|moment|confirm with)\b", re.I)
@@ -131,15 +132,15 @@ class Engine:
         now = self.now()
         tmpl = OPENING.format(greeting=clock.greeting(now), time=self.facts.get("time"))
         event = (f"Open the conversation now. In London it is {clock.hhmm(now)}, so greet with "
-                 f"'{clock.greeting(now)}'. Introduce yourself just as an assistant, with no name (do not say AI "
-                 f"here), and ask for a table for two today at {self.facts.get('time')}. One message, for example: "
+                 f"'{clock.greeting(now)}'. Do not introduce yourself; in the first person, ask for a table for two "
+                 f"today at {self.facts.get('time')}. One message, for example: "
                  f"\"{tmpl}\"")
         acts: list = []
         d = self._decide(event, acts)
         draft = d.reply if d and d.reply.strip() else tmpl
         why = "opening, " + self._slot_summary()
         if re.search(r"\bAI\b", draft):
-            # the opening says just "assistant"; "AI" comes only when the manager asks whether it is a bot
+            # "AI" comes only when the manager asks whether it is a bot
             draft, why = tmpl, why + " (model draft said AI, template sent)"
         acts += self._say(draft, event, why, fallback=tmpl)
         self.phase = OPEN
@@ -664,6 +665,9 @@ class Engine:
         text, asked = self._owner_fields(guard.fix(draft))
         if asked:
             why += f" ({OWNER_FIELD_GUARD})"
+        text, cut = self._persona(text, fallback)
+        if cut:
+            why += f" ({PERSONA_GUARD})"
         probs = guard.check(text, self.facts, self.chat_texts) if text else [guard.Problem("empty", "no text")]
         acts.append(Log("guard", {"text": text, "problems": [str(p) for p in probs],
                                   "result": "ok" if not probs else "blocked"}))
@@ -676,6 +680,9 @@ class Engine:
                 text, asked_again = self._owner_fields(guard.fix(d.reply))
                 if asked_again and not asked:
                     asked, why = True, why + f" ({OWNER_FIELD_GUARD})"
+                text, cut_again = self._persona(text, fallback)
+                if cut_again and not cut:
+                    cut, why = True, why + f" ({PERSONA_GUARD})"
                 probs = guard.check(text, self.facts, self.chat_texts)
                 acts.append(Log("guard", {"text": text, "problems": [str(p) for p in probs],
                                           "result": "ok" if not probs else "blocked",
@@ -759,6 +766,16 @@ class Engine:
         if policy.asks_restaurant(text) and not self.facts.is_confirmed("restaurant_name"):
             out += f" {ASK_RESTAURANT_ALSO}"
         return out.strip() or HOLD, True
+
+    def _persona(self, text: str, fallback: str | None) -> tuple[str, bool]:
+        """"assistant", "the guest", "my client", "on behalf of" leave the text, unless the manager's last message
+        asks whether this is a bot, an AI or a human. Nothing left -> the fallback template or the holding line."""
+        if policy.asks_if_bot(self.manager_texts[-1] if self.manager_texts else ""):
+            return text, False
+        out, cut = policy.drop_persona(text)
+        if not cut:
+            return text, False
+        return out or (fallback if fallback and not policy.PERSONA_RE.search(fallback) else HOLD), True
 
     def _ask_confirm(self, reply: str, voice: bool) -> list:
         """The model's reply (the name or phone in it) plus one question: is it all confirmed. The restaurant's name

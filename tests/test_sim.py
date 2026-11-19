@@ -116,14 +116,13 @@ def test_model_down_schedules_one_retry_at_a_time(tmp_path):
     assert len(brain.calls) == 6
 
 
-def test_opening_says_assistant_not_ai(tmp_path):
+def test_opening_has_no_self_introduction(tmp_path):
     from agent.brain import D
     from sim.scenarios import Scenario, Step
     draft = "Good morning. I'm an AI assistant - could I book a table for two today at 17:00, please?"
     scn = Scenario("open_ai", "model says AI in the opening", [Step("open", brain=[D(draft)], expect={"sends": 1})])
     res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
-    assert res.all_sent == [("text", "Good morning. I'm an assistant - could I book a table for two today at 17:00, "
-                                     "please?")]
+    assert res.all_sent == [("text", "Good morning. Could I book a table for two today at 17:00, please?")]
 
 
 def test_pleasantries_after_the_closing_get_no_reply(tmp_path):
