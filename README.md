@@ -1,6 +1,6 @@
 # Table-booking agent
 
-A Telegram agent that books a table for two in a London restaurant by writing to the manager from my second Telegram account, «Ярослав» (@alexithymia0x). It opens the chat in English, answers everything the manager says, and after the manager agrees it sends one restatement: time, date, number of people, restaurant. Anything it does not know (the name for the booking, a phone number, whether a later time is fine) it asks me in a separate bot, @yk_booking_console_bot, and waits for my answer. Voice notes work both ways.
+A Telegram agent that books a table for two in a London restaurant by writing to the manager from my second Telegram account, «Ярослав» (@alexithymia0x). It opens the chat in English as "an assistant" and names nobody unless the manager asks for a name for the booking. It answers everything the manager says, and after the manager agrees it sends one restatement: time, date, number of people, restaurant. Anything it does not know (the name for the booking, a phone number, whether a later time is fine) it asks me in a separate bot, @yk_booking_console_bot, and waits for my answer. Voice notes work both ways.
 
 ## Run
 
@@ -43,7 +43,7 @@ Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.js
    - name, phone or email go to me only if the manager asked for them;
    - the final restatement is built by code from confirmed slots. If the manager agreed but never said the restaurant's name, the agent asks for it first;
    - after the restatement the agent answers one thank-you or goodbye. Further thanks, goodbyes and emoji get no reply, and the decision line says why. Questions and changes always get an answer.
-5. Every outgoing text goes through `agent/guard.py`. It fixes long dashes and curly quotes and blocks: phone numbers and emails that are not mine, times and dates nobody said, a party size other than two, capitalised names that are not in the facts or the chat, payment promises, and first-person experience ("I did catch it", "I've been there"). A blocked draft is rewritten once with the problem named, then tried on the fallback model, then replaced by a safe template, and I get a note. A blocked text is never sent.
+5. Every outgoing text goes through `agent/guard.py`. It fixes long dashes and curly quotes and blocks: phone numbers and emails that are not mine, times and dates nobody said, a party size other than two, capitalised names that are not in the facts or the chat, my name unless I gave it as the booking name, payment promises, and first-person experience ("I did catch it", "I've been there"). A blocked draft is rewritten once with the problem named, then tried on the fallback model, then replaced by a safe template, and I get a note. A blocked text is never sent.
 6. If I don't answer, the agent reminds me after 3 minutes and after 10 tells the manager it is still confirming. If the manager goes quiet, it sends one follow-up after 10 minutes and a second after 30, then only waits.
 7. My bot also gets a silent copy of every message and takes `/pause`, `/resume`, `/stop`, `/status`.
 
@@ -58,7 +58,7 @@ When the manager sends a voice note, the reply is a voice note with the same tex
 ```
 08:00:30 IN manager: "Good morning! Yes, we can do 17:00 for two. What name shall I put it under?" | understood: asks info | decided: name not known, ask the owner
 08:00:30 OWNER asked (guest_name): "На какое имя записать бронь? ..."
-08:00:30 OUT agent #2: "Wonderful, thank you. Let me just check the name with Yaroslav, I'll be back in a moment." | why: name not known, ask the owner
+08:00:30 OUT agent #2: "Wonderful, thank you. Let me just check the name, I'll be back in a moment." | why: name not known, ask the owner
 08:02:30 OWNER answered phone: "+44 77** ***123", used in reply #6
 ```
 
