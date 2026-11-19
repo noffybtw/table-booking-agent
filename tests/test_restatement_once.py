@@ -136,3 +136,37 @@ def test_manager_plain_yes():
         assert policy.manager_yes(t, "17:00"), t
     for t in ("ok?", "Yes but only until 19:00", "Yes, 18:00 then", "Sorry, not yet", "Hmm", "I don't think so", ""):
         assert not policy.manager_yes(t, "17:00"), t
+
+
+def silence(e):
+    return e.handle(Event("timer", text="silence", gen=e.gen["silence"]))
+
+
+def test_agreed_then_silent_gets_the_restatement_not_a_follow_up():
+    e = opened(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    assert texts(e.handle(Event("manager_message", text="Yes, 17:00 for two is fine."))) == [restate.ASK_RESTAURANT]
+    acts = silence(e)
+    said = restatements(acts)
+    assert len(said) == 1 and "at your restaurant" in said[0] and "might be possible" not in " ".join(texts(acts))
+    assert any(isinstance(a, NotifyOwner) and "at your restaurant" in a.text for a in acts)
+    assert e.phase == "confirmed" and silence(e) == []
+
+
+def test_silence_after_the_confirm_question_asks_to_confirm():
+    e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
+    e.handle(Event("manager_message", text=f"Yes, 17:00 is fine at {REST}. What name?"))
+    e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk"))
+    e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
+    out = texts(silence(e))
+    assert out == ["Sorry to chase - just checking that the table for two at 17:00 today is all confirmed?"]
+    out = texts(silence(e))
+    assert len(out) == 1 and "might be possible" not in out[0]
+    e.brain.push(D("Thank you!", intent="closing"))
+    # the confirm question still stands after the follow-ups: a late plain yes is the agreement
+    said = restatements(e.handle(Event("manager_message", text="Yes, all confirmed.")))
+    assert len(said) == 1 and "under the name Kostyk" in said[0]
+
+
+def test_silence_before_any_agreement_still_asks_whether_a_table_is_possible():
+    e = opened()
+    assert texts(silence(e)) == ["Sorry to chase - just checking whether a table for two at 17:00 today might be possible?"]

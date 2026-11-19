@@ -23,6 +23,7 @@ STILL_CHECKING = "Thank you for bearing with me, I'm still checking that."
 SORRY_WAIT = "Sorry for the wait, I'm still confirming that detail."
 NAME_ONLY = " Would it be all right to hold the table under the name {name} for now?"
 FOLLOW_UP_1 = "Sorry to chase - just checking whether a table for two at {time} today might be possible?"
+FOLLOW_UP_CONFIRM = "Sorry to chase - just checking that the table for {people} at {time} today is all confirmed?"
 FOLLOW_UP_2 = "Hello again. Whenever you have a moment, I'd be grateful for a quick reply about the table for two at {time} today."
 BAD_VOICE = "Sorry, I couldn't play that voice note. Could you type it, please?"
 TECH_HOLD = "Thank you - give me just a moment, please."
@@ -244,10 +245,17 @@ class Engine:
             if ev.gen != self.gen["silence"] or self.pending or self.phase == CONFIRMED:
                 return []
             t = self.facts.get("time")
+            if self.agreed and self.restated_sig is None:
+                # the manager agreed and went quiet before naming the restaurant: restate now, no "might be possible"
+                return self._restate_on_silence()
             if self.followups == 0:
                 self.followups = 1
-                acts = self._say(FOLLOW_UP_1.format(time=t), "", "no reply for 10 minutes, one polite follow-up",
-                                 fallback=FOLLOW_UP_1.format(time=t), rearm=False)
+                first = FOLLOW_UP_1.format(time=t)
+                if self.confirm_asked:
+                    n = int(self.facts.get("party_size"))
+                    first = FOLLOW_UP_CONFIRM.format(people=restate.NUMBER_WORDS.get(n, str(n)), time=t)
+                acts = self._say(first, "", "no reply for 10 minutes, one polite follow-up", fallback=first,
+                                 rearm=False)
                 return acts + [Schedule("silence", self.t.silence_second - self.t.silence_first, ev.gen)]
             if self.followups == 1:
                 self.followups = 2
@@ -288,6 +296,17 @@ class Engine:
                 return []
             return self._respond(*self.retry)
         return [Log("note", {"text": f"unknown timer {name}"})]
+
+    def _restate_on_silence(self) -> list:
+        acts: list = []
+        if "restaurant_name" in restate.missing(self.facts):
+            self.unnamed = True
+            acts.append(NotifyOwner(texts.t("no_restaurant")))
+        text = restate.build(self.facts, variant=self.turn, unnamed=self.unnamed)
+        if not text:
+            return [Log("note", {"text": "silence after the agreement, the restatement cannot be built yet"})]
+        return ([Log("decision", {"understood": "-", "decided": "manager agreed and has been quiet for 10 minutes; "
+                                  "restatement now"})] + self._restate(text, restate.signature(self.facts)) + acts)
 
     def _command(self, cmd: str) -> list:
         cmd = (cmd or "").strip().lower().lstrip("/")
