@@ -75,6 +75,6 @@ The bot talks to me in Ukrainian; `decisions.md` names each question and answer 
 ## Limits
 
 - The guard is regular expressions. It sometimes blocks a harmless capitalised word; then the rewrite or the template goes out and I'm asked what to say. The model's understanding of the chat is not checked, only what it sends.
-- While I was building it, edge-tts returned 403 for every voice and Orpheus needed its terms accepted in the Groq console, so voice out fell back to text. edge-tts 7.3.1 is on PyPI, and the installed version is 7.2.8.
+- While I was building it, edge-tts 7.2.8 returned 403 for every voice; 7.3.1 fixed that and is the version in `requirements.txt`. Orpheus works only after its terms are accepted in the Groq console. If both fail, the text goes as a normal message.
 - Groq's free tier is 8k tokens a minute per model, about four turns a minute on gpt-oss-120b. Fast bursts are merged into one turn, and a busy primary hands over to the fallback.
 - One manager, one booking, English replies only. The booking card widget for the owner bot (`--widgets`) is not built.
