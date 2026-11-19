@@ -47,6 +47,7 @@ class Decision(BaseModel):
     action: Literal["reply", "ask_owner", "final_restatement", "wait", "end"]
     reply: str = ""
     decision: str = ""
+    claim: bool = False  # the manager's line says our side said, called, wants, cancelled or changed something
 
     @field_validator("intent", mode="before")
     @classmethod
@@ -242,11 +243,11 @@ class FakeBrain:
 
 
 def D(reply: str = "", action: str = "reply", intent: str = "question", understood: str = "", decision: str = "",
-      needs_owner: tuple | list = (), **slots) -> dict:
+      needs_owner: tuple | list = (), claim: bool = False, **slots) -> dict:
     """A scripted decision for FakeBrain."""
     return {"understood": understood or intent.replace("_", " "), "intent": intent, "slots": slots,
             "needs_owner": list(needs_owner), "action": action, "reply": reply,
-            "decision": decision or f"{action}: {intent}"}
+            "decision": decision or f"{action}: {intent}", "claim": claim}
 
 
 def simple_rules(facts: FactStore, transcript: list[str], event: str) -> Decision:

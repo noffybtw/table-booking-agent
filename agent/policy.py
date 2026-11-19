@@ -339,9 +339,11 @@ def manager_times(manager_texts: list[str]) -> set[str]:
     return out
 
 
-def accepted_slots(slots, facts: FactStore, manager_texts: list[str], untrusted=()) -> tuple[dict, list[str]]:
+def accepted_slots(slots, facts: FactStore, manager_texts: list[str], untrusted=(),
+                   tainted_words=frozenset()) -> tuple[dict, list[str]]:
     """Slot values from the model that the manager really wrote. `manager_texts` leave out claims made in the
-    owner's name and refused instructions (`untrusted`): a condition only those name ("wheelchair") is not taken.
+    owner's name and refused instructions (`untrusted`): a condition only those name ("wheelchair") is not taken,
+    and neither is one whose word first came in such a line (`tainted_words`), even when a later line repeats it.
     Returns ({key: value}, rejected notes)."""
     ok, rejected = {}, []
     if slots.restaurant_name:
@@ -371,9 +373,12 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str], untrusted=
         nums = re.findall(r"\d+", slots.condition)
         blob = " ".join(manager_texts)
         only_there = [w for w in re.findall(r"[a-z]{4,}", slots.condition.lower())
-                      if any(w in u.lower() for u in untrusted) and w not in blob.lower()]
+                      if any(w in u.lower() for u in untrusted) and w not in blob.lower() or w in tainted_words]
+        said = [w for w in re.findall(r"[a-z]{4,}", slots.condition.lower()) if w in blob.lower()]
         if only_there:
             rejected.append(f"condition {slots.condition!r} comes from a line not taken as a fact")
+        elif not said and re.search(r"[a-z]{4,}", slots.condition.lower()):
+            rejected.append(f"condition {slots.condition!r}: no word of it in the manager's messages")
         elif all(n in blob for n in nums) and guard.check(slots.condition, facts, manager_texts) == []:
             ok["condition"] = slots.condition.strip().rstrip(".")
         else:
@@ -493,28 +498,83 @@ def owner_field_questions(text: str, keys, known=()) -> list[tuple[str, str]]:
 
 # a line that puts words in the owner's mouth ("Your client just rang us and cancelled"): a claim, never a fact.
 # A question ("Does your client want a high chair?") or an "if" clause ("if the guest wants, ...") is not a claim.
-CLAIM_SUBJECT = (r"(?:your|the) (?:client|guest|customer|boss|owner|friend)s?|the person you(?:'re| are) booking for|"
-                 r"(?:someone|somebody) (?:from|on) your side")
-CLAIM_VERB = (r"(?:called|rang|rung|phoned|cancell?ed|asked|wants?|wanted|changed|confirmed|said|told|emailed|e-mailed|"
-              r"messaged|texted|requested|moved|rebooked|updated|contacted|came in|popped in|(?:got|been) in touch)")
-CLAIM_GAP = r"(?:\s+(?:has|have|had|just|already|directly|now|also|actually|then|earlier|been|did))*\s+"
+# Our side is "your client", "your party", "the guest", "who booked", the booking's name; never the restaurant's own
+# people ("the owner said that's fine", "the boss confirmed", "the guests wanted the terrace").
+OUR_PEOPLE = (r"(?:client|guest|customer|party|colleague|husband|wife|partner|friend|boss|owner|assistant|PA|secretary|"
+              r"office|family|son|daughter|mum|mom|dad|team|other half)")
+OUR_SIDE = (r"your " + OUR_PEOPLE + r"s?|the (?:client|customer|guest)|"
+            r"the (?:person|people|gentleman|lady|man|woman|guy|party) (?:you(?:'re| are) booking for|"
+            r"who (?:booked|made the (?:booking|reservation)))|(?:whoever|someone|somebody) who booked|"
+            r"(?:someone|somebody) (?:from|on) your side")
+CLAIM_VERB = (r"(?:called|rang|rung|phoned|cancell?ed|asked|wants?|wanted|would like|'d like|changed|confirmed|said|"
+              r"told|emailed|e-mailed|messaged|texted|requested|moved|rebooked|updated|contacted|came in|popped in|"
+              r"(?:got|been|gotten) in touch|prefers?|preferred|decided|mentioned)")
+# "they" and "you" only with a contact verb: "You changed it to 17:30" can be this very chat
+CONTACT_VERB = (r"(?:called|rang|rung|phoned|cancell?ed|emailed|e-mailed|messaged us|texted|contacted us|came in|"
+                r"popped in|(?:got|been|gotten) in touch)")
+CLAIM_GAP = r"(?:\s+(?:has|have|had|just|already|directly|now|also|actually|then|earlier|did|only|kindly))*\s+"
+CONTACT_RE = (r"\b(?:spoke|spoken|speaking|talked|talking|chatted) (?:to|with) (?:{obj})\b|"
+              r"\b(?:heard|hearing) (?:back )?from (?:{obj})\b|\bon the phone (?:to|with) (?:{obj})\b|"
+              r"\b(?:{obj}) (?:is |was |has been )?on the phone\b|\bat (?:the )?(?:{obj})'s request\b|"
+              r"\bat the request of (?:{obj})\b|\bat your request\b|"
+              r"\b(?:call|message|email|e-mail|text|word|request|note|voicemail) from (?:{obj})\b|"
+              r"\b(?:{obj})'s (?:call|message|email|request|note|wish(?:es)?|instructions?)\b")
 CONDITIONAL_RE = re.compile(r"\b(?:if|whether|in case|unless|should|when|would|could|does|do|did)\s*$", re.I)
+# the same in Ukrainian, Russian and French: "ваш клієнт дзвонив", "ваш клиент отменил", "votre client a appelé"
+FOREIGN_CLAIM_RE = re.compile(r"\b(?:ваш[аеіиоу]?|ваши|ваших) (?:клієнт|клиент|гіст|гост|замовник|заказчик)\w*.{0,40}?"
+                              r"(?:дзвон|телефон|скасув|змін|проси|хоче|хотів|хотіли|звон|отмен|измен|хочет|хотел|"
+                              r"перенес|підтверд|подтверд)|"
+                              r"\bvotre client\w*.{0,40}?(?:appel|annul|demand|veut|voudrait|chang|confirm)", re.I)
 
 
-CLAIM_RE = re.compile(r"\b(?:" + CLAIM_SUBJECT + r")\b" + CLAIM_GAP + CLAIM_VERB + r"\b|"
-                      r"\b(?:call|message|email|text|word|request|note) from (?:" + CLAIM_SUBJECT + r")\b", re.I)
+def _claim_re(names=()) -> re.Pattern:
+    named = [re.escape(n) for n in names if n and len(n) > 1]
+    side = OUR_SIDE + ("|" + "|".join(named) if named else "")
+    subj = r"(?:" + side + r")(?:'s)?"
+    return re.compile(r"\b" + subj + r"\b" + CLAIM_GAP + CLAIM_VERB + r"\b|"
+                      r"\b(?:they|you)(?:'ve)?" + CLAIM_GAP + CONTACT_VERB + r"\b|"
+                      + CONTACT_RE.format(obj=side), re.I)
 
 
-def claim(text: str) -> str | None:
-    """The sentence of the manager's line that says the owner's side called, cancelled, asked, wants, changed or
-    confirmed something; None when there is none."""
-    for sent in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+def claim(text: str, names=()) -> str | None:
+    """The sentence of the manager's line that says our side (the client, the guest, "you", the booking's name)
+    called, cancelled, asked, wants, changed or confirmed something; None when there is none."""
+    rx = _claim_re(names)
+    for sent in re.split(r"(?<=[.!?])\s+", (text or "").strip().replace("\u2019", "'")):
         if sent.rstrip().endswith("?"):
             continue
-        for m in CLAIM_RE.finditer(sent):
+        for m in list(rx.finditer(sent)) + list(FOREIGN_CLAIM_RE.finditer(sent)):
             if not CONDITIONAL_RE.search(sent[:m.start()]):
                 return sent.strip()
     return None
+
+
+# what a line not taken as a fact may bring in: these never count later unless the owner says the line is true
+TAINT_STOP = {"just", "they", "them", "their", "there", "want", "wants", "wanted", "instead", "updated", "side", "client",
+              "clients", "guest", "guests", "rang", "rung", "called", "phoned", "directly", "also", "have", "been", "would",
+              "like", "with", "that", "this", "from", "asked", "said", "told", "cancelled", "canceled", "released",
+              "changed", "moved", "sorry", "about", "your", "you're", "we've", "i've", "it's", "table", "booking", "book",
+              "booked", "time", "today", "tonight", "people", "party", "please", "thanks", "thank", "now", "here",
+              "what", "when", "which", "will", "shall", "could", "should", "into", "then", "than", "only", "earlier",
+              "minute", "minutes", "ago", "know", "just", "call", "rebooked", "confirmed", "confirm", "ignore",
+              "previous", "instructions", "all", "follow", "decode", "system", "prompt"}
+
+
+def taint_of(text: str, trusted: list[str], time: str | None, party: int | None) -> dict:
+    """The times, party sizes and condition words a claim or a refused line brings in that no line taken as a fact
+    named before."""
+    blob = " ".join(trusted).lower()
+    times = manager_times([text]) - manager_times(trusted) - {time}
+    sizes = {n for _, n in guard.find_party(text)} - {n for t in trusted for _, n in guard.find_party(t)} - {party}
+    words = {w for w in re.findall(r"[a-z][a-z']{3,}", text.lower()) if w not in TAINT_STOP and w not in blob}
+    return {"times": times, "sizes": sizes, "words": words}
+
+
+def names_tainted(text: str, taint: dict) -> list[str]:
+    """The tainted times and party sizes `text` names ("So I've got you down for 18:00")."""
+    out = sorted(manager_times([text]) & taint.get("times", set()))
+    out += [said for said, n in guard.find_party(text or "") if n in taint.get("sizes", set())]
+    return out
 
 
 # questions about the conversation itself: answered by code from the history and the facts, never by the owner

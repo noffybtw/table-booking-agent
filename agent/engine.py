@@ -82,6 +82,8 @@ class Engine:
         self.chat_texts: list[str] = []      # what the manager and the owner wrote; the guard trusts only these
         self.manager_texts: list[str] = []
         self.untrusted: list[str] = []       # claims made in the owner's name and refused instructions: never facts
+        self.taint: dict[str, dict] = {}     # untrusted line -> the times, party sizes, words it brought in
+        self.claim_lines: list[str] = []     # the claims the open claim question is about
         self.pending: dict[str, dict] = {}   # owner questions waiting for an answer
         self.declined_times: set[str] = set()
         self.agreed = False
@@ -188,11 +190,12 @@ class Engine:
             self.n_in += 1
             untrusted = None
             if m.text and m.kind != "media":
-                untrusted = "refused" if policy.injection(m.text) else "claim" if policy.claim(m.text) else None
+                untrusted = ("refused" if policy.injection(m.text) else
+                             "claim" if policy.claim(m.text, self._names()) else None)
             if untrusted:
                 line = f"{CLAIM_LABEL if untrusted == 'claim' else REFUSED_LABEL}: {m.text}"
                 (claims if untrusted == "claim" else refused).append(m.text)
-                self.untrusted.append(m.text)
+                self._distrust(m.text)
             elif ev.kind == "manager_edit":
                 line = f"MANAGER (edited an earlier message; it was: \"{ev.old_text}\"): {m.text}"
             elif m.kind == "voice" and not m.text:
@@ -497,6 +500,15 @@ class Engine:
             return acts
         self.retry = None
         self.brain_down_sent = False
+        if said and any(t.strip() for t in said) and (d.claim or self._repeats_taint(d, said)):
+            # the model reads the line as said in our name, or it repeats a value only such a line brought in
+            acts.append(Log("note", {"text": "the model reads this as a claim made in our name" if d.claim else
+                                     "the line repeats a detail only a line not taken as a fact named"}))
+            for t in said:
+                self._distrust(t, relabel=True)
+            acts += self._untrusted(list(said), [])
+            self.answered, self.relay, self.took_time, self.from_profile = None, [], False, []
+            return acts
         if said and self.profile:
             # a profile field goes only when the model wants it and the manager's sentence really asks for it
             wanted = {policy.norm_key(k) for k in d.needs_owner}
@@ -516,9 +528,17 @@ class Engine:
         f = self.facts
         notes: list[str] = []
 
-        ok, rejected = policy.accepted_slots(d.slots, f, self.manager_texts, self.untrusted)
+        taint = self._taint_now()
+        ok, rejected = policy.accepted_slots(d.slots, f, self.manager_texts, self.untrusted, taint["words"])
         if ok.get("offered_time") in self.declined_times:
             ok.pop("offered_time")
+        heard_now = " ".join(said or [])
+        again = [t for t in sorted(policy.manager_times([heard_now]) & taint["times"])
+                 if t != f.get("time") and t not in self.declined_times and policy.time_sure(t, [heard_now])]
+        if again and "alternative_time" not in self.pending and not ok.get("offered_time"):
+            # "So I've got you down for 18:00": a time only a claim or a refused line named goes to the owner
+            ok["offered_time"] = again[0]
+            notes.append(f"{again[0]} first came in a line not taken as a fact: the owner is asked")
         for k, v in ok.items():
             if f.get(k) != v:
                 f.set(k, v, "manager", self.turn, confirmed=(k == "restaurant_name"))
@@ -549,6 +569,8 @@ class Engine:
                 and "alternative_time" not in self.pending):
             heard = " ".join(said)
             plain = policy.plain_offer(heard, offered, f.get("time"))
+            if offered in taint["times"]:
+                plain = "it first came in a line not taken as a fact"
             if self.profile.inside(offered) and policy.time_sure(offered, [heard]) and plain is None:
                 # the owner said before the start that this time works: no question, the manager hears it works
                 f.set("time", offered, "owner", self.turn)
@@ -585,6 +607,13 @@ class Engine:
             notes.append(f"manager offered {offered}: another time is the owner's call, asking")
 
         agreed_now = d.action == "final_restatement" or d.slots.manager_agreed
+        if agreed_now and said is not None and not any(t.strip() for t in said):
+            agreed_now = False
+            notes.append("the model's agreement not taken: no line of this turn is taken as a fact")
+        if agreed_now and said is not None and policy.names_tainted(" ".join(said), taint):
+            agreed_now = False
+            notes.append("the model's agreement not taken: it names "
+                         f"{', '.join(policy.names_tainted(' '.join(said), taint))} from a line not taken as a fact")
         if agreed_now and said is None and not (self.agreed or self.took_time):
             # an owner turn: the model's "agreed" stands only for the time the owner has just taken
             agreed_now = False
@@ -863,6 +892,13 @@ class Engine:
         if probs:
             acts.append(NotifyOwner(texts.t("guard_nothing", why=guard.describe(first))))
             return acts
+        tainted = self._tainted_out(text)
+        if tainted:
+            # a time or party size only a claim or a refused line named never goes out as ours
+            line = fallback if fallback and not self._tainted_out(fallback) else HOLD
+            acts.append(Log("guard", {"text": text, "problems": [f"names {', '.join(tainted)} from a line not taken "
+                                                                 "as a fact"], "result": "blocked"}))
+            text, why = line, why + f" (guard: {', '.join(tainted)} only came in a line not taken as a fact; template)"
         if once and self.pending:
             sents = re.split(r"(?<=[.!?])\s+", text.strip())
             holds = [s for s in sents if CHECKING_RE.search(s) or s in HOLD_AGAIN]
@@ -894,6 +930,55 @@ class Engine:
         if rearm:
             acts += self._arm_silence()
         return acts
+
+    def _names(self) -> list[str]:
+        """The booking's name as the manager may write it in a claim ("Yaroslav just called us")."""
+        names = [self.facts.get("guest_name"), self.facts.get("on_behalf_of"),
+                 self.profile.get("guest_name") if self.profile else None]
+        return [str(n).split()[0] for n in names if n]
+
+    def _distrust(self, text: str, relabel: bool = False) -> None:
+        """`text` is not a fact: out of what the guard and the slots trust; what it brought in is tainted."""
+        for lst in (self.manager_texts, self.chat_texts):
+            if text in lst:
+                del lst[len(lst) - 1 - lst[::-1].index(text)]
+        mine = [x.removeprefix("AGENT: ") for x in self.transcript if x.startswith("AGENT: ")]
+        n = self.facts.get("party_size")
+        self.taint[text] = policy.taint_of(text, self.chat_texts + mine, self.facts.get("time"),
+                                           int(n) if n is not None else None)
+        if text not in self.untrusted:
+            self.untrusted.append(text)
+        if relabel:
+            for i in range(len(self.transcript) - 1, -1, -1):
+                if self.transcript[i].startswith("MANAGER") and self.transcript[i].endswith(f": {text}"):
+                    self.transcript[i] = f"{CLAIM_LABEL}: {text}"
+                    break
+
+    def _taint_now(self) -> dict:
+        out: dict = {"times": set(), "sizes": set(), "words": set()}
+        for t in self.taint.values():
+            for k in out:
+                out[k] |= t[k]
+        return out
+
+    def _repeats_taint(self, d: Decision, said: list[str]) -> bool:
+        """A line that repeats a condition or party size only a claim or a refused line named; a repeated time goes
+        to the owner as a time question instead (_apply)."""
+        taint = self._taint_now()
+        heard = " ".join(said)
+        if policy.manager_times([heard]) & taint["times"]:
+            return False
+        # the word must be in this line: a model that keeps last turn's condition does not make a line a claim
+        words = set(re.findall(r"[a-z]{4,}", (d.slots.condition or "").lower())) & set(re.findall(r"[a-z]{4,}",
+                                                                                                    heard.lower()))
+        return bool(words & taint["words"] or [n for _, n in guard.find_party(heard) if n in taint["sizes"]])
+
+    def _tainted_out(self, text: str) -> list[str]:
+        taint = self._taint_now()
+        open_q = self.pending.get("alternative_time") or {}
+        ok = {self.facts.get("time"), self.facts.get("offered_time"), open_q.get("offered")}
+        taint["times"] = taint["times"] - ok
+        return policy.names_tainted(text or "", taint)
 
     def manager_confirmed(self) -> bool:
         """The manager agreed to the current time and party size after their last change."""
@@ -1083,9 +1168,11 @@ class Engine:
         if claims:
             if "claim" in self.pending:
                 acts.append(NotifyOwner(texts.t("claim_again", text=claims[-1][:300])))
+                self.claim_lines += claims
                 line = CLAIM_AGAIN
             else:
                 acts += self._ask_key("claim", claims[-1])
+                self.claim_lines = list(claims)
                 line = CLAIM_REPLY
             why = "the manager says this came from our side: not taken as a fact, the owner is asked (code line)"
         else:
