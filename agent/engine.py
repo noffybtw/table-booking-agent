@@ -449,6 +449,11 @@ class Engine:
         if self.from_profile:
             notes.append(f"{', '.join(self.from_profile)} from the owner's profile, given before the start")
         offered = f.get("offered_time")
+        open_q = self.pending.get("alternative_time")
+        if open_q and said is not None and offered and offered != open_q.get("offered"):
+            # the manager changed the offer while the owner is asked: the open question names another time, ask again
+            self.pending.pop("alternative_time")
+            notes.append(f"the offer changed to {offered} while the owner was asked: asking again")
         window_took = False
         if (self.profile and self.profile.window and said is not None and offered and offered != f.get("time")
                 and "alternative_time" not in self.pending):
@@ -527,7 +532,7 @@ class Engine:
                                      "action": d.action, "owner_keys": new_keys}))
         for k in new_keys:
             q, buttons, contact = policy.owner_question(k, f, last)
-            self.pending[k] = {"said": last, "turn": self.turn}
+            self.pending[k] = {"said": last, "turn": self.turn, "offered": offered if k == "alternative_time" else None}
             g = self.gen[f"owner:{k}"] = self.gen.get(f"owner:{k}", 0) + 1
             acts += [AskOwner(k, q, buttons, contact), Log("owner_question", {"key": k, "question": q, "gloss": policy.gloss(k, f)}),
                      Schedule("owner_reping", self.t.owner_reping, g, k), Schedule("owner_wait", self.t.owner_wait, g, k)]

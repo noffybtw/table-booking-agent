@@ -40,7 +40,7 @@ def norm_key(key: str) -> str:
 
 ASKED_RE = {
     "guest_name": re.compile(r"\bname\b|\bunder (?:what|which|whose)\b|\bwho(?:'s| is) (?:it|the booking) for\b|"
-                             r"\bwhose\b", re.I),
+                             r"\bwhose\b|\bsurname\b|\bbooked under\b|\bput it (?:down )?(?:for|under)\b|\bwho(?:'s| is) the (?:reservation|table) for\b", re.I),
     "phone": re.compile(r"\bphone|\bnumber\b|\bcontact\b|\bmobile\b|\breach you\b|\bcall you\b|\btel\b", re.I),
     "email": re.compile(r"\be-?mail\b", re.I),
 }
@@ -71,8 +71,8 @@ REQUEST_RE = re.compile(r"\?|\bplease\b(?! note\b)|\bpl[sz]\b|\b(?:can|could|may
                         r"\b(?:can|could|would) you (?:give|send|share|tell|provide|leave)\b|\bunder what name\b|"
                         r"\bcontact number\b|\b(?:I|we)(?:'ll| will|'d| would)? need\b(?! to (?:check|see|look|find)\b)|"
                         r"\bleave (?:me|us)\b|\bname\b.{0,30}\b(?:is|be)\W*$|"
-                        r"^\W*(?:(?:and|ok|okay|sure|great|lovely|so)\b\W*)*(?:what|which|whose|under|name|phone|mobile|"
-                        r"number|contact)\b", re.I)
+                        r"^\W*(?:(?:and|ok|okay|sure|great|lovely|so)\b\W*)*(?:(?:what|which|whose|under)\b|"
+                        r"(?:name|phone|mobile|number|contact)\b(?!'s)(?:\W+[\w']+){0,5}\W*$)|\bwho\b.{0,40}\bfor\W*$", re.I)
 OWN_NAME_RE = re.compile(r"\b(?:my|our) name(?:'s|\s+is)\b", re.I)
 
 
@@ -102,7 +102,7 @@ OTHER_DAY_RE = re.compile(r"\b(?:tomorrow|tmrw|yesterday|next (?:week|month)|thi
 CONDITION_RE = re.compile(r"\bdeposit|[£$€]|\bminimum spend\b|\bonly for\b|\bfor (?:\d+|an?|one|two|half an?) "
                           r"(?:minutes?|mins?|hours?|hrs?)\b|\buntil\b|\btill\b|\bprovided\b|\bas long as\b|"
                           r"\b(?:bar|counter|shared|communal|outside|terrace|branch|limit|max|card)\b|"
-                          r"\bback (?:by|after|in)\b|\bfor (?!2\b)(?:\d+|three|four|five|six)\b", re.I)  # "for 2" is the party
+                          r"\bback (?:by|after|in)\b|\bfor (?!2\b)(?:\d+|three|four|five|six)\b(?![:.]\d)", re.I)  # "for 2" is the party
 # "but" and "if" after the offered time ("18:30 but only for 45 minutes"); "if that works" is not a condition
 AFTER_CONDITION_RE = re.compile(r"\b(?:but|if)\b(?! (?:that(?:'s| is)? )?(?:works?|suits?|helps|ok|okay|any good|"
                                 r"you(?:'d)? like)\b)", re.I)
@@ -434,7 +434,8 @@ OWNER_FIELDS = ("guest_name", "phone", "email")
 NOT_OWNER_FIELDS = ("alternative_time", "reply_help", "deposit", "card_details")
 FIELD_RE = {
     "guest_name": re.compile(r"(?<!restaurant's )(?<!restaurant )\bname\b(?! of (?:the|your) restaurant)|\bunder (?:what|which|whose)\b|"
-                             r"\bwho(?:'s| is) (?:it|the booking|the table) for\b", re.I),
+                             r"\bwho(?:'s| is) (?:it|the booking|the table|the reservation) for\b|\bsurname\b|\bbooked under\b|"
+                             r"\bput it (?:down )?(?:for|under)\b", re.I),
     "phone": re.compile(r"\bphone\b|\bmobile\b|\btelephone\b|\bcontact (?:number|details)\b|\b(?:a|the|your|best) number\b"
                         r"(?! of\b)|\bnumber (?:to|for|on)\b(?! (?:two|people|guests))|\btel\b|\bname and (?:a |the |your )?number\b", re.I),
     "email": re.compile(r"\be-?mail\b", re.I),
@@ -474,7 +475,7 @@ BOT_QUESTION_RE = re.compile(r"\b(?:bot|robot|ai|a\.i\.|artificial|automated|mac
 BOT_STATEMENT_RE = re.compile(r"\b(?:are|is) (?:you|this|it|that)\b(?: \w+){0,3} (?:a |an )?(?:bot|robot|ai|a\.i\.|"
                               r"artificial|automated|machine|chat ?gpt|human|real(?! (?!person\b|human\b)\w)|computer)\b|"
                               r"\byou (?:sound|seem|write|type|talk)(?: \w+){0,2} like (?:a |an )?(?:bot|robot|ai|"
-                              r"machine|computer)\b|"
+                              r"machine|computer|chat ?gpt|automated|artificial)\b|"
                               r"\byou(?:'re| are) (?:a |an )?(?:bot|robot|ai|machine|computer)\b", re.I)
 IDENTITY_RE = re.compile(r"\bwho (?:am i|are we) (?:speaking|talking|chatting|writing) (?:with|to)\b|"
                          r"\bwho(?:'s| is) (?:this|that|speaking|writing|messaging)\b|\bwho are you\b", re.I)
