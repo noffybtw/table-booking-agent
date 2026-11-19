@@ -16,24 +16,31 @@ OPENERS = (
 )
 CORRECTION_OPENER = "Thank you for the correction. So that's now"
 ASK_RESTAURANT = "Thank you. Could I just take the restaurant's name for my note?"
+UNNAMED = "your restaurant"  # after one ask the manager still gave no name
 
 
-def missing(facts: FactStore) -> list[str]:
-    return [k for k in REQUIRED if not facts.is_confirmed(k)]
+def missing(facts: FactStore, unnamed: bool = False) -> list[str]:
+    """Required values not confirmed yet; with `unnamed` the restaurant may stay "your restaurant"."""
+    return [k for k in REQUIRED if not facts.is_confirmed(k) and not (unnamed and k == "restaurant_name")]
+
+
+def restaurant(facts: FactStore) -> str:
+    return str(facts.get("restaurant_name")) if facts.is_confirmed("restaurant_name") else UNNAMED
 
 
 def booking_line(facts: FactStore, with_restaurant: bool = True) -> str:
     n = int(facts.get("party_size"))
     people = NUMBER_WORDS.get(n, str(n))
     line = f"a table for {people} at {facts.get('time')} on {clock.human_date(facts.booking_date())}"
-    if with_restaurant and facts.get("restaurant_name"):
-        line += f" at {facts.get('restaurant_name')}"
+    if with_restaurant:
+        line += f" at {restaurant(facts)}"
     return line
 
 
-def build(facts: FactStore, variant: int = 0, correction: bool = False) -> str | None:
-    """None while any of time, date, party size or restaurant is not confirmed."""
-    if missing(facts):
+def build(facts: FactStore, variant: int = 0, correction: bool = False, unnamed: bool = False) -> str | None:
+    """None while any of time, date, party size or restaurant is not confirmed (the restaurant may be "your
+    restaurant" with `unnamed`)."""
+    if missing(facts, unnamed):
         return None
     opener = CORRECTION_OPENER if correction else OPENERS[variant % len(OPENERS)]
     text = f"{opener} {booking_line(facts)}"
@@ -61,7 +68,7 @@ def signature(facts: FactStore) -> tuple:
     return tuple(facts.get(k) for k in REQUIRED + ("guest_name", "condition"))
 
 
-def verify(text: str, facts: FactStore) -> list[str]:
+def verify(text: str, facts: FactStore, unnamed: bool = False) -> list[str]:
     """Every required value must appear in the text exactly as it is in the facts."""
     problems = []
     n = int(facts.get("party_size") or 0)
@@ -69,10 +76,10 @@ def verify(text: str, facts: FactStore) -> list[str]:
         "time": str(facts.get("time")),
         "date": clock.human_date(facts.booking_date()),
         "party_size": f"for {NUMBER_WORDS.get(n, str(n))}",
-        "restaurant_name": str(facts.get("restaurant_name")),
+        "restaurant_name": f"at {restaurant(facts)}",
     }
     for k, v in checks.items():
-        if not facts.is_confirmed(k):
+        if not facts.is_confirmed(k) and not (unnamed and k == "restaurant_name"):
             problems.append(f"{k} not confirmed")
         elif v not in text:
             problems.append(f"{k} {v!r} missing from the restatement")

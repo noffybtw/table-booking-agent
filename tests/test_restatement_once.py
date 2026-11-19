@@ -57,3 +57,20 @@ def test_correction_opener_only_when_a_booking_fact_changed():
     assert not restate.is_correction(("17:00", "2026-11-19", 2, None, None, None), sig)
     assert restate.is_correction(sig, ("17:30",) + sig[1:])
     assert restate.is_correction(sig, sig[:3] + ("The Wolseley", None, None))
+
+
+def test_no_restaurant_name_after_one_ask_restates_at_your_restaurant():
+    e = opened(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    acts = e.handle(Event("manager_message", text="Good morning, yes - 17:00 for two today is booked for you."))
+    assert texts(acts) == [restate.ASK_RESTAURANT] and restatements(acts) == []
+    e.brain.push(D("Of course, thank you!", intent="question"))
+    acts = e.handle(Event("manager_message", text="It's our place, you wrote to us!"))
+    said = restatements(acts)
+    assert len(said) == 1 and "at your restaurant" in said[0] and "17:00" in said[0]
+    assert any(isinstance(a, NotifyOwner) and "at your restaurant" in a.text for a in acts)
+    assert e.phase == "confirmed"
+    # the name given later goes into one more restatement, with a normal opener
+    e.brain.push(D("Thank you!", intent="question", restaurant_name="The Ivy"))
+    acts = e.handle(Event("manager_message", text="Ha, sorry - it's The Ivy."))
+    late = restatements(acts)
+    assert len(late) == 1 and "at The Ivy" in late[0] and not late[0].startswith(restate.CORRECTION_OPENER)

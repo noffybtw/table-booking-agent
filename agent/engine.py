@@ -50,6 +50,7 @@ class Engine:
         self.declined_times: set[str] = set()
         self.agreed = False
         self.asked_restaurant = False
+        self.unnamed = False                 # asked once, no restaurant name: restate with "at your restaurant"
         self.restated_sig: tuple | None = None
         self.n_restated = 0
         self.closed = False                  # one closing reply went out after the restatement
@@ -252,7 +253,7 @@ class Engine:
                 return []
             self.pending[key]["apologised"] = True
             if key in DETAIL_KEYS and self.agreed and self.restated_sig is None:
-                text = restate.build(self.facts, variant=self.turn)
+                text = restate.build(self.facts, variant=self.turn, unnamed=self.unnamed)
                 if text:
                     # the owner is silent: restate without the detail, keep the question open for a late answer
                     missing = [k for k in DETAIL_KEYS if k in self.pending]
@@ -400,7 +401,11 @@ class Engine:
                               voice=voice)
             return acts
         if restate_due:
-            text = restate.build(f, variant=self.turn, correction=restate.is_correction(self.restated_sig, sig))
+            if self.asked_restaurant and said is not None and "restaurant_name" in restate.missing(f):
+                self.unnamed = True
+                acts.append(NotifyOwner(texts.t("no_restaurant")))
+            text = restate.build(f, variant=self.turn, correction=restate.is_correction(self.restated_sig, sig),
+                                 unnamed=self.unnamed)
             if text:
                 acts += self._restate(text, sig)
                 if new_keys and reply:
@@ -464,7 +469,7 @@ class Engine:
 
     def _restate(self, text: str, sig: tuple) -> list:
         text = guard.fix(text)
-        probs = restate.verify(text, self.facts) + [str(p) for p in guard.check(text, self.facts, self.chat_texts)]
+        probs = restate.verify(text, self.facts, self.unnamed) + [str(p) for p in guard.check(text, self.facts, self.chat_texts)]
         if probs:
             return [Log("guard", {"text": text, "problems": probs, "result": "restatement blocked"}),
                     NotifyOwner(texts.t("restatement_blocked", problems="; ".join(probs)))]
@@ -474,6 +479,8 @@ class Engine:
         self.closed = False  # a corrected restatement may get its own thank-you
         self.gen["silence"] += 1
         why = "manager agreed; restatement built by code from confirmed slots: " + self._slot_summary()
+        if self.unnamed and not self.facts.is_confirmed("restaurant_name"):
+            why += " (the manager gave no restaurant name after one ask: \"at your restaurant\")"
         self.n_out += 1
         self.transcript.append(f"AGENT: {text}")
         cls = SendVoice if self.voice_restatement else SendText
