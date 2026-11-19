@@ -181,3 +181,12 @@ def test_everything_far_away_is_brain_down():
     with pytest.raises(BrainDown):
         b.decide(facts(), [], "open")
     assert g.calls == []
+
+
+def test_prompt_keeps_the_owner_name_out_of_what_the_agent_says():
+    from agent import prompt
+    text = prompt.system("Yaroslav")
+    assert "check with Yaroslav" not in text and "booking for Yaroslav" not in text
+    assert "Never name the person the table is for" in text
+    assert "you will check and come back shortly" in text
+    assert "an AI assistant making this booking" in text

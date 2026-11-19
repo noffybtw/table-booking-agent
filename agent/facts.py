@@ -15,7 +15,7 @@ DESCRIPTIONS = {
     "time": "booking time, London",
     "date": "booking date",
     "timezone": "timezone",
-    "on_behalf_of": "the person you book for",
+    "on_behalf_of": "the person you book for; never say this name to the manager",
     "guest_name": "name for the booking",
     "phone": "contact phone for the booking",
     "restaurant_name": "restaurant name, as the manager gave it",
