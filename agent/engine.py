@@ -19,6 +19,7 @@ NEW, OPEN, CONFIRMED = "new", "open", "confirmed"
 
 OPENING = "{greeting}. Could I book a table for two today at {time}, please?"
 HOLD = "Let me just check that and come back to you in a moment."
+HOLD_TIME = "Thank you - let me just check whether {time} is possible for us and come back to you in a moment."
 STILL_CHECKING = "Thank you for bearing with me, I'm still checking that."
 SORRY_WAIT = "Sorry for the wait, I'm still confirming that detail."
 # a holding line already sent in this conversation goes as the first of these not sent yet
@@ -535,6 +536,13 @@ class Engine:
         reply = self._with_detail(d.reply.strip()) if d.action not in ("wait", "end") else d.reply.strip()
         if self.from_profile and CHECKING_RE.search(d.reply):
             reply = ""  # "let me check those details": the profile has them, the detail line goes instead
+        if "alternative_time" in new_keys:
+            # the other time is the owner's call: no decline and no yes from the model before the owner answers
+            detail = self._detail_line() if self.from_profile else None
+            hold = HOLD_TIME.format(time=offered) if offered else HOLD
+            line = f"{detail} {hold}" if detail else hold
+            return acts + self._say(line, event, "another time offered: holding line from code while the owner is "
+                                    "asked, the model's draft not sent", fallback=HOLD, voice=voice)
         if hold_restatement:
             acts += self._say(reply or (HOLD if new_keys else STILL_CHECKING), event,
                               f"holding line; the restatement goes once {', '.join(waiting)} is back", fallback=HOLD,

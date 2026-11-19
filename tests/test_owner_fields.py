@@ -121,5 +121,5 @@ def test_holding_line_is_never_sent_twice_word_for_word():
     second = sends(e.handle(Event("manager_message", text="Lovely. What name and phone number should I put it under?")))
     e.brain.push(D(same, intent="question"))
     third = sends(e.handle(Event("manager_message", text="Any luck?")))
-    assert first == [same] and len(second) == 1 and len(third) == 1
+    assert len(first) == 1 and len(second) == 1 and len(third) == 1
     assert len({first[0], second[0], third[0]}) == 3

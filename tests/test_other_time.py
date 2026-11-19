@@ -186,3 +186,15 @@ def test_no_stored_offer_drops_the_accept_button_and_asks_for_the_time():
     e.brain.push(D("Thank you, 19:00 works for us.", intent="counter_offer"))
     e.handle(Event("owner_answer", key="alternative_time", text="19:00"))
     assert e.facts.get("time") == "19:00" and "alternative_time" not in e.pending
+
+
+def test_model_decline_not_sent_while_the_owner_is_asked():
+    from test_owner_answers import sends
+    e = opened(D("I'm afraid 17:00 is the only time that works for us. I'll check with my client and get back to you "
+                 "shortly.", **COUNTER, offered_time="20:00"),
+               D("Thank you, 20:00 works for us.", intent="counter_offer", decision="owner accepted 20:00"))
+    acts = e.handle(Event("manager_message", text="Sorry, 17:00 is full. I can do 20:00"))
+    assert [a.key for a in acts if isinstance(a, AskOwner)] == ["alternative_time"] and sends(acts) == [
+        "Thank you - let me just check whether 20:00 is possible for us and come back to you in a moment."]
+    out = sends(e.handle(Event("owner_answer", key="alternative_time", value="accept")))
+    assert len(out) == 1 and "20:00 works for us" in out[0] and "only time" not in out[0]
