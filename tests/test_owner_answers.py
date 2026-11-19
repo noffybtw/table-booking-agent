@@ -118,3 +118,16 @@ def test_neither_yes_nor_no_sends_the_question_again(word):
     assert sends(acts) == [] and not e.brain.queue  # no model call
     assert e.facts.get("time") == "17:00" and e.facts.get("offered_time") == "18:30" and not e.declined_times
     assert "alternative_time" in e.pending
+
+
+def test_stray_owner_message_gets_the_status_and_no_model_turn():
+    e = opened()
+    acts = e.handle(Event("owner_answer", text="ну як там?"))
+    assert sends(acts) == [] and not e.brain.queue and len(e.brain.calls) == 1  # only the opening called the model
+    note = [a.text for a in acts if isinstance(a, NotifyOwner)]
+    assert len(note) == 1 and "STATE: phase open" in note[0]
+    assert e.facts.get("owner_note") == "ну як там?"
+    # the note is a known fact on the next model turn
+    e.brain.push(D("Thank you, could I book a table for two today at 17:00?"))
+    e.handle(Event("manager_message", text="Hello, sorry, who is this?"))
+    assert e.brain.calls[-1]["facts"]["owner_note"] == "ну як там?"

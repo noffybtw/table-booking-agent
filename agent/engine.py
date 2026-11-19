@@ -175,22 +175,27 @@ class Engine:
                                              "result": "not a reply to a question, several are open; asked which"}),
                         NotifyOwner(policy.which_question(list(self.pending)))]
         else:
-            key = "owner_note"
-        offered = self.facts.get("offered_time")
-        if key == "owner_note":
+            # nothing is asked: "ну як там?" must not start a message to the manager. The owner gets the status,
+            # the note waits in the facts for the next model turn.
             self.facts.set("owner_note", text, "owner", self.turn)
-            line = text
-        else:
-            line = policy.apply_owner_answer(self.facts, key, text, ev.value, ev.contact, self.turn)
-            if line is None:
-                # the question stays open (and its timers run on); no model turn on an answer that is not taken
-                if key == "alternative_time":
-                    q, buttons, contact = policy.owner_question(key, self.facts, self.pending.get(key, {}).get("said", ""))
-                    return [Log("owner_answer", {"key": key, "text": text,
-                                                 "result": "neither yes nor no, question sent again"}),
-                            AskOwner(key, f"{texts.t('time_again')} {q}", buttons, contact)]
-                return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
-                        AskOwner(key, texts.t("name_again"), [], False)]
+            self.transcript.append(f"OWNER (private, the manager cannot see this): {text}")
+            if text:
+                self.chat_texts.append(text)
+            return [Log("owner_answer", {"key": "note", "text": text,
+                                         "summary": "owner note with no open question: kept for the next model "
+                                                    "turn, status sent to the owner"}),
+                    NotifyOwner(texts.t("note_kept", status=self.status_text()))]
+        offered = self.facts.get("offered_time")
+        line = policy.apply_owner_answer(self.facts, key, text, ev.value, ev.contact, self.turn)
+        if line is None:
+            # the question stays open (and its timers run on); no model turn on an answer that is not taken
+            if key == "alternative_time":
+                q, buttons, contact = policy.owner_question(key, self.facts, self.pending.get(key, {}).get("said", ""))
+                return [Log("owner_answer", {"key": key, "text": text,
+                                             "result": "neither yes nor no, question sent again"}),
+                        AskOwner(key, f"{texts.t('time_again')} {q}", buttons, contact)]
+            return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
+                    AskOwner(key, texts.t("name_again"), [], False)]
         summary = "owner note, passed to the model"
         if key == "guest_name":
             summary = f'name "{self.facts.get("guest_name")}"'
