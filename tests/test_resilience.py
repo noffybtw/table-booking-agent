@@ -79,3 +79,29 @@ def test_engine_answers_a_failed_download_with_the_bad_voice_line():
     e = Engine(FakeBrain(), FactStore.for_task(now), now=lambda: now)
     acts = e.handle(manager_event([Msg(None, 7, kind="voice", error="download failed: ConnectionError")]))
     assert [a.text for a in acts if isinstance(a, SendText)] == [BAD_VOICE]
+
+
+def test_looking_forward_goes_out():
+    from agent.brain import D
+    from agent.events import SendText
+    from test_owner_answers import opened
+    e = opened(D("Looking forward to it, thank you!", intent="off_topic"))
+    acts = e.handle(Event("manager_message", text="Lovely to hear from you. Any plans for the weekend?"))
+    assert [a.text for a in acts if isinstance(a, SendText)] == ["Looking forward to it, thank you!"]
+
+
+def test_every_draft_blocked_sends_hold_asks_the_owner_and_arms_the_follow_up():
+    from agent.brain import D
+    from agent.engine import HOLD
+    from agent.events import AskOwner, Schedule, SendText
+    from test_owner_answers import opened
+    bad = D("Bob from the front desk sends his regards!", intent="off_topic")
+    e = opened(bad, bad, bad)
+    acts = e.handle(Event("manager_message", text="Who did you speak to last time?"))
+    assert [a.text for a in acts if isinstance(a, SendText)] == [HOLD]
+    assert [a.key for a in acts if isinstance(a, AskOwner)] == ["reply_help"] and "reply_help" in e.pending
+    timers = {(a.name, a.key) for a in acts if isinstance(a, Schedule)}
+    assert {("owner_reping", "reply_help"), ("owner_wait", "reply_help")} <= timers
+    g = e.gen["owner:reply_help"]
+    later = e.handle(Event("timer", text="owner_wait", key="reply_help", gen=g))
+    assert [a.text for a in later if isinstance(a, SendText)] == ["Sorry for the wait, I'm still confirming that detail."]

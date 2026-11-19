@@ -425,7 +425,9 @@ class Engine:
                                   voice=voice)
             return acts
         why = d.decision or d.action
-        fallback = HOLD if (new_keys or self.pending) else None
+        # every draft blocked: a closing after the restatement, otherwise a holding line and the owner is asked
+        closing = self.phase == CONFIRMED and d.intent in PLEASANTRY and not new_keys and not self.pending
+        fallback = CLOSING if closing else HOLD
         n_before = self.n_out
         acts += self._say(reply, event, why, fallback=fallback, voice=voice)
         if self.phase == CONFIRMED and d.intent in PLEASANTRY and self.n_out > n_before:
@@ -508,10 +510,14 @@ class Engine:
         return acts
 
     def _ask_help(self) -> list:
+        """The owner is asked what to say; the same reminder and the apology to the manager as any question."""
         last = self.manager_texts[-1] if self.manager_texts else ""
         q, buttons, contact = policy.owner_question("reply_help", self.facts, last)
         self.pending["reply_help"] = {"said": last, "turn": self.turn}
-        return [AskOwner("reply_help", q, buttons, contact), Log("owner_question", {"key": "reply_help", "question": q})]
+        g = self.gen["owner:reply_help"] = self.gen.get("owner:reply_help", 0) + 1
+        return [AskOwner("reply_help", q, buttons, contact), Log("owner_question", {"key": "reply_help", "question": q}),
+                Schedule("owner_reping", self.t.owner_reping, g, "reply_help"),
+                Schedule("owner_wait", self.t.owner_wait, g, "reply_help")]
 
     def _arm_silence(self) -> list:
         if self.phase == CONFIRMED or self.pending:

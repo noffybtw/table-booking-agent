@@ -38,6 +38,8 @@ Whatever When Where Whether Which While Who Why Will With Without Wonderful Woul
 Afraid Agreed Already Alternatively Apologies Booked Booking Certainly Confirmed Could Definitely Excuse Hold
 Ha Hmm Anyway Lastly Lucky Ooh Haha Fair Gosh Righto Sure Naturally Of Shame Speaking Thankfully Totally Understandable What Whoops Wow
 Whenever Call Give Tell Feel Happy Hopefully Wishing Have Take Bear Bless Apologies Ah Aha Cheerio Enjoy Mind Shame
+Looking Pardon Likewise Bye Hoping Speak Same Table Three Four Five Six Seven Eight Cheers Welcome Pleasure Yeah Yep
+Nope Oops Cool Sorted Ideal Name Number Time Reservation Glad Talk Allow
 """.split())
 
 DASH_RE = re.compile(r"\s*[‒–—―−]\s*")

@@ -145,3 +145,11 @@ def test_owner_name_passes_once_it_is_the_guest_name(facts):
     other = FactStore.for_task(clock.parse_now("2026-11-19T08:00"))
     other.set("guest_name", "Anna", "owner", 3)
     assert "owner_name" in rules("It's under Anna, for Yaroslav.", other)
+
+
+@pytest.mark.parametrize("text", ["Looking forward to it, thank you!", "Pardon me, could you say that again?",
+                                  "Likewise, have a lovely day.", "Bye for now.", "Hoping 17:00 still works.",
+                                  "Speak soon.", "Same here, thank you.", "Table for two, lovely.",
+                                  "Cheers, see you at 17:00.", "Apologies for the wait."])
+def test_plain_sentence_starters_are_not_names(facts, text):
+    assert guard.check(text, facts, []) == []
