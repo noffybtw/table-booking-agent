@@ -66,6 +66,7 @@ class StepResult:
     notes: list[str]
     acts: list
     problems: list[str] = field(default_factory=list)
+    questions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -111,6 +112,9 @@ def check(step: Step, res: StepResult, scripted: bool = True) -> list[str]:
     for k in e.get("asks", []):
         if k not in res.asked:
             probs.append(f"owner should be asked {k!r}, asked {res.asked}")
+    for s in e.get("asks_says", []):
+        if not any(s in q for q in res.questions):
+            probs.append(f"expected {s!r} in the owner question: {res.questions!r}")
     if "asks_none" in e and res.asked:
         probs.append(f"owner should not be asked, asked {res.asked}")
     if e.get("voice") and not any(v == "voice" for v, _ in res.sent):
@@ -188,6 +192,7 @@ async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], N
         if ev is not None:
             acts += await runner.feed(ev)
         res = StepResult(step, transport.out[n_out:], [a[0] for a in owner.asked[n_ask:]], owner.notes[n_note:], acts)
+        res.questions = [a[1] for a in owner.asked[n_ask:]]
         res.problems = check(step, res, scripted)
         results.append(res)
     log.close()

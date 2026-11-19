@@ -139,6 +139,17 @@ def time_answer(text: str, offered: str | None, time: str | None) -> str | None:
     return None
 
 
+def typed_time(text: str, time: str | None) -> str | None:
+    """The one time in an owner's answer like "18:30" or "давай 6:30", read as the evening one; None for a question,
+    a wait, a no or a "but", more than one time, or the booking time itself."""
+    text = text or ""
+    found = guard.find_times(text)
+    if "?" in text or WAIT_RE.search(text) or NOT_RE.search(text) or NO_RE.match(text) or len(found) != 1:
+        return None
+    t = guard.norm_time(text)
+    return t if t != time else None
+
+
 def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None, contact: bool,
                        turn: int) -> str | None:
     """Stores the answer; returns the line the model sees (OWNER ...), or None when the answer is not taken and
@@ -149,6 +160,10 @@ def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None,
         offered = facts.get("offered_time")
         if value is None:
             value = time_answer(text, offered, facts.get("time"))
+        if value in (None, "accept") and not offered:
+            # no offer was stored (the model's time was not taken): a time the owner types is the one accepted
+            offered = typed_time(text, facts.get("time"))
+            value = "accept" if offered else value
         if value == "accept" and offered:
             facts.set("time", offered, "owner", turn)
             facts.drop("owner_note")
@@ -194,6 +209,19 @@ def find_in(texts: list[str], value: str) -> str | None:
     return None
 
 
+MORNING_RE = re.compile(r"\b(?:in the|this) morning\b", re.I)
+
+
+def manager_times(manager_texts: list[str]) -> set[str]:
+    """Each time the manager wrote, as one value. "6:30" with no am/pm is 18:30, the booking is for 17:00 today;
+    it is 06:30 only when the manager wrote "06:30", "6:30am" or "6:30 in the morning"."""
+    out: set[str] = set()
+    for m in manager_texts:
+        for _, c in guard.find_times(m):
+            out.add(next(iter(c)) if len(c) == 1 else min(c) if MORNING_RE.search(m) else max(c))
+    return out
+
+
 def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[dict, list[str]]:
     """Slot values from the model that the manager really wrote. Returns ({key: value}, rejected notes)."""
     ok, rejected = {}, []
@@ -206,9 +234,13 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
         else:
             rejected.append(f"restaurant_name {slots.restaurant_name!r} not in the manager's messages")
     if slots.offered_time:
-        t = guard.norm_time(slots.offered_time)
-        said = set().union(*[c for m in manager_texts for _, c in guard.find_times(m)]) if manager_texts else set()
-        if t and t in said:
+        # the model's "06:30" or "6:30" is the time the manager wrote with those digits, morning or evening
+        cands = next((c for _, c in guard.find_times(slots.offered_time)), set())
+        cands |= {f"{(int(c[:2]) + 12) % 24:02d}{c[2:]}" for c in cands if int(c[:2]) % 12}
+        said = cands & manager_times(manager_texts)
+        own = guard.norm_time(slots.offered_time)
+        t = own if own in said else max(said) if said else None
+        if t:
             if t != facts.get("time"):
                 ok["offered_time"] = t
         else:

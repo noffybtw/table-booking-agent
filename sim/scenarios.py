@@ -57,6 +57,7 @@ def silence(minutes, *brain, **expect) -> Step:
 
 AGREE = dict(action="final_restatement", intent="agreed", manager_agreed=True, decision="manager agreed")
 RESTATED = {"sends": 1, "voice": True, "says": ["17:00", "Thursday 19 November", "two", REST]}
+RESTATED_1830 = {"sends": 1, "voice": True, "says": ["18:30", "Thursday 19 November", "two", REST], "never": ["06:30"]}
 
 SCENARIOS = [
     Scenario("happy", "agreement in one go, the manager names the restaurant", [
@@ -85,6 +86,33 @@ SCENARIOS = [
         M(f"Actually, we've just had a cancellation, so 17:00 for two is yours. We're {REST}.",
           D(**AGREE, restaurant_name=REST), **RESTATED, never=["18:30"]),
     ]),
+    Scenario("counter_offer_dot", "17:00 is full, \"18.30\" offered with a dot; the owner types a plain yes; one "
+             "restatement at 18:30", [
+        opening(),
+        M("Sorry, 17:00 is full. I can do 18.30",
+          D("Thank you - let me just check whether 18.30 works and come back to you.", action="ask_owner",
+            intent="counter_offer", needs_owner=["alternative_time"], offered_time="18.30",
+            decision="another time is the owner's call"),
+          sends=1, asks=["alternative_time"], asks_says=["18:30"], booked=False, never=["18:30 works"]),
+        O("так", D("Thank you, 18:30 works for us - could you book the table for two at 18:30?",
+                   intent="counter_offer", decision="owner accepted 18:30"),
+          key="alternative_time", sends=1, says=["18:30"], booked=False),
+        M(f"Lovely, 18:30 for two is booked. We're {REST}.", D(**AGREE, restaurant_name=REST),
+          **RESTATED_1830),
+    ], restatements=1),
+    Scenario("counter_offer_ambiguous", "17:00 is full, \"6:30\" offered with no am/pm; the owner presses accept; "
+             "one restatement at 18:30, never 06:30", [
+        opening(),
+        M("I'm sorry, we're fully booked at 17:00. I can do 6:30 though.",
+          D("Thank you - let me just check whether 6:30 works and come back to you.", action="ask_owner",
+            intent="counter_offer", needs_owner=["alternative_time"], offered_time="6:30",
+            decision="another time is the owner's call"),
+          sends=1, asks=["alternative_time"], asks_says=["18:30"], booked=False, never=["06:30"]),
+        O(None, D("Thank you, 6:30 works for us - could you book the table for two at 6:30?", intent="counter_offer",
+                  decision="owner accepted 18:30"),
+          key="alternative_time", value="accept", sends=1, booked=False, never=["06:30"]),
+        M(f"Perfect, see you at 6:30. It's {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED_1830),
+    ], restatements=1),
     Scenario("name_phone", "the manager asks for a name and a phone; the owner answers both, nothing invented", [
         opening(),
         M("Good morning! Yes, we can do 17:00 for two. What name shall I put it under?",

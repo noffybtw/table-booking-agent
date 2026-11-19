@@ -81,10 +81,17 @@ TIME_PATTERNS = [
     re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\s*" + AMPM + r"?(?![\d:])", re.I),
     re.compile(r"\b(1[0-2]|0?[1-9])\.([0-5]\d)\s*" + AMPM, re.I),
     re.compile(r"\b(1[0-2]|0?[1-9])()\s*" + AMPM + r"(?!\w)", re.I),
+    # 18.30, 6.30 with no am/pm: only on the quarter hours, so a price or a date is not a time
+    re.compile(r"(?<![\d.,£$€])\b([01]?\d|2[0-3])\.(00|15|30|45)\b(?![.,]?\d)", re.I),
+    # 1830 on its own, not a group of a phone number or a year like 2026
+    re.compile(r"(?<![\d+.,:/£$€])(?<!\d )(?<!\d-)\b([01]\d|2[0-3])(00|15|30|45)\b(?![.,:/]?\d)(?! \d)(?!-\d)"),
 ]
+DOTTED, FOUR_DIGIT = TIME_PATTERNS[3], TIME_PATTERNS[4]
 WORD_HOUR = r"(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|1[0-2]|[1-9])"
 OCLOCK_RE = re.compile(WORD_HOUR + r"\s*o'?\s?clock", re.I)
 HALF_RE = re.compile(r"\b(half|quarter)\s+(past|to)\s+" + WORD_HOUR + r"\b", re.I)
+# "half six" is 6:30 in British English
+HALF_BARE_RE = re.compile(r"\bhalf[\s-]+" + WORD_HOUR + r"\b(?!\s*(?:people|persons|guests|of us|hours?|minutes?))", re.I)
 AT_HOUR_RE = re.compile(r"\b(?:at|by|around|about|from|until|till|after|before)\s+(1[0-2]|[1-9]|" +
                         r"one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b(?![:.]\d|\s*(?:" +
                         AMPM + r"|o'?\s?clock|people|persons|guests|of us|adults|diners|covers|minutes?|mins?|"
@@ -115,9 +122,12 @@ def find_times(text: str) -> list[tuple[str, set[str]]]:
 
     for pat in TIME_PATTERNS:
         for m in pat.finditer(text):
-            h, mm, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3)
-            if pat is TIME_PATTERNS[0] and not ap and h <= 23:
-                add(m, {f"{h:02d}:{mm:02d}"} if h > 12 or h == 0 or mm or len(m.group(1)) == 2 else _cands(h, mm, None))
+            h, mm, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3) if pat.groups >= 3 else None
+            if pat in (TIME_PATTERNS[0], DOTTED) and not ap:
+                # "6:30" may be 06:30 or 18:30, as a bare "6" is; "06:30", "12:30" and "18:30" are one time
+                add(m, _cands(h, mm, None) if 1 <= h <= 11 and m.group(1)[0] != "0" else {f"{h:02d}:{mm:02d}"})
+            elif pat is FOUR_DIGIT:
+                add(m, {f"{h:02d}:{mm:02d}"})
             else:
                 add(m, _cands(h, mm, ap))
     for m in OCLOCK_RE.finditer(text):
@@ -130,6 +140,8 @@ def find_times(text: str) -> list[tuple[str, set[str]]]:
             add(m, _cands(h, 15, None))
         else:
             add(m, _cands(h - 1 or 12, 45, None))
+    for m in HALF_BARE_RE.finditer(text):
+        add(m, _cands(_num(m.group(1)), 30, None))
     for m in NOON_RE.finditer(text):
         add(m, {"12:00"})
     for m in AT_HOUR_RE.finditer(text):

@@ -206,7 +206,7 @@ class Engine:
                                          "summary": "owner note with no open question: kept for the next model "
                                                     "turn, status sent to the owner"}),
                     NotifyOwner(texts.t("note_kept", status=self.status_text()))]
-        offered = self.facts.get("offered_time")
+        offered, time_before = self.facts.get("offered_time"), self.facts.get("time")
         line = policy.apply_owner_answer(self.facts, key, text, ev.value, ev.contact, self.turn)
         if line is None:
             # the question stays open (and its timers run on); no model turn on an answer that is not taken
@@ -222,6 +222,8 @@ class Engine:
             summary = f'name "{self.facts.get("guest_name")}"'
         elif key == "phone" and self.facts.get("phone") and line.startswith("phone: "):
             summary = line.removeprefix("phone: ")
+        if key == "alternative_time" and not offered and self.facts.get("time") != time_before:
+            summary = f"accepted {self.facts.get('time')} (typed by the owner, no offer was stored)"
         if key == "alternative_time" and offered:
             if self.facts.get("time") == offered:
                 # the manager offered it and the owner took it: the new time is agreed on both sides
