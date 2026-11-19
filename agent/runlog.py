@@ -11,13 +11,25 @@ from agent import clock
 from agent.events import AskOwner, Log, NotifyOwner, Schedule, SendText, SendVoice, Stop
 
 PHONE_RE = re.compile(r"\+?\d[\d ()\-]{5,}\d")
-# decisions.md is English only: owner wording and non-Latin manager text stay in events.jsonl
+# decisions.md is English except the manager's own words, quoted as written: owner wording stays in events.jsonl
 CYRILLIC_RE = re.compile(r"[\u0400-\u052F]")
 CYRILLIC_RUN_RE = re.compile(r"[\u0400-\u052F]+(?:[\s,.!?:;'\"«»()\d-]*[\u0400-\u052F]+)*")
+# an IN line: the quoted manager text and, for an edit, the quoted old text
+MANAGER_WORDS_RE = re.compile(r'^(- [\d:]+ IN manager(?: \([a-z]+\))?: )"(.*?)"(?: \(was "(.*?)"\))?(?= \| understood: |$)')
 
 
 def latin_only(text: str) -> str:
     return CYRILLIC_RUN_RE.sub("[non-Latin text]", text or "")
+
+
+def cyrillic_outside_manager_words(text: str) -> list[str]:
+    """The gate for decisions.md: lines with Cyrillic anywhere but in the manager's quoted words."""
+    bad = []
+    for i, line in enumerate(text.splitlines(), 1):
+        own = MANAGER_WORDS_RE.sub(lambda m: m.group(1) + '""', line)
+        if CYRILLIC_RE.search(own):
+            bad.append(f"{i}: {line}")
+    return bad
 
 
 def mask_phone(text: str) -> str:
@@ -70,8 +82,11 @@ class RunLog:
         with self.events.open("a") as f:
             f.write(self._clean(line) + "\n")
 
-    def line(self, text: str) -> None:
-        text = latin_only(self._clean(f"{clock.hhmm(self.now(), seconds=True)} {text}"))
+    def line(self, text: str, *verbatim: str) -> None:
+        """One decisions.md line. `text` may hold "{}" slots for the manager's own words: those go in as written,
+        Cyrillic included; everything else the agent writes is Latin only."""
+        own = latin_only(self._clean(f"{clock.hhmm(self.now(), seconds=True)} {text}"))
+        text = own.format(*(self._clean(v) for v in verbatim)) if verbatim else own
         with self.decisions.open("a") as f:
             f.write(f"- {text}\n")
         if self.echo:
@@ -81,15 +96,16 @@ class RunLog:
         for i, row in enumerate(self._in):
             what = {"voice": "manager (voice)", "edit": "manager (edited)", "media": "manager (media)"}.get(
                 row["kind"], "manager")
-            text = f'"{short(row["text"])}"' if row["text"] else "(no text)"
-            if CYRILLIC_RE.search(row["text"] or ""):
-                text = f"(not in Latin letters, {len(row['text'])} characters; the original is in events.jsonl)"
+            words = [short(row["text"])] if row["text"] else []
+            text = '"{}"' if words else "(no text)"
             if row["kind"] == "edit" and row.get("old_text"):
-                text += f' (was "{short(row["old_text"], 120)}")'
+                text += ' (was "{}")'
+                words.append(short(row["old_text"], 120))
             tail = ""
             if i == len(self._in) - 1 and (understood or decided):
                 tail = f" | understood: {short(understood, 200)} | decided: {short(decided, 300)}"
-            self.line(f"IN {what}: {text}{tail}")
+            tail = tail.replace("{", "{{").replace("}", "}}")
+            self.line(f"IN {what}: {text}{tail}", *words)
         self._in = []
 
     def record(self, act) -> None:

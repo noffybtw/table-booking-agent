@@ -72,7 +72,7 @@ When the manager sends a voice note, the reply is a voice note with the same tex
 08:02:30 OWNER answered phone: +44 77** ***123, used in reply #6
 ```
 
-The bot talks to me in Ukrainian; `decisions.md` names each question and answer in English by its key, and a manager message that is not in Latin letters is shown by its length, with the model's English reading next to it. `events.jsonl` keeps the original wording and everything else: each model call with model, latency, tokens and rate-limit headers, each guard result, each timer. Phone numbers are masked in both files, and values from `.env` are scrubbed before anything is written.
+The bot talks to me in Ukrainian; `decisions.md` names each question and answer in English by its key, and quotes the manager's messages as written, in any language, with the model's English reading next to each. `events.jsonl` keeps the original wording and everything else: each model call with model, latency, tokens and rate-limit headers, each guard result, each timer. Phone numbers are masked in both files, and values from `.env` are scrubbed before anything is written.
 
 ## Limits
 
