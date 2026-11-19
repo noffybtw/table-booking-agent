@@ -198,3 +198,13 @@ def test_model_decline_not_sent_while_the_owner_is_asked():
         "Thank you - let me just check whether 20:00 is possible for us and come back to you in a moment."]
     out = sends(e.handle(Event("owner_answer", key="alternative_time", value="accept")))
     assert len(out) == 1 and "20:00 works for us" in out[0] and "only time" not in out[0]
+
+
+def test_manager_writes_again_while_the_owner_is_asked_gets_still_checking():
+    from test_owner_answers import sends
+    e = opened(D("Let me check.", **COUNTER, offered_time="20:00"),
+               D("I'm afraid 20:00 doesn't work.", intent="counter_offer", offered_time="20:00"))
+    e.handle(Event("manager_message", text="Sorry, 17:00 is full. I can do 20:00"))
+    acts = e.handle(Event("manager_message", text="Hello? Is 20:00 ok?"))
+    assert sends(acts) == ["Thank you for bearing with me, I'm still checking that."]
+    assert not [a for a in acts if isinstance(a, AskOwner)] and "alternative_time" in e.pending

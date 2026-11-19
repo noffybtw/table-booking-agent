@@ -546,6 +546,12 @@ class Engine:
             line = f"{detail} {hold}" if detail else hold
             return acts + self._say(line, event, "another time offered: holding line from code while the owner is "
                                     "asked, the model's draft not sent", fallback=HOLD, voice=voice)
+        if said is not None and "alternative_time" in self.pending:
+            # the manager writes again while the owner is still asked about the other time ("Hello? Is 20:00 ok?")
+            detail = self._detail_line() if self.from_profile else None
+            line = f"{detail} {STILL_CHECKING}" if detail else STILL_CHECKING
+            return acts + self._say(line, event, "another time still with the owner: still checking from code, the "
+                                    "model's draft not sent", fallback=STILL_CHECKING, voice=voice)
         if hold_restatement:
             acts += self._say(reply or (HOLD if new_keys else STILL_CHECKING), event,
                               f"holding line; the restatement goes once {', '.join(waiting)} is back", fallback=HOLD,

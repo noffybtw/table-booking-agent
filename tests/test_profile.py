@@ -60,6 +60,9 @@ def test_outside_the_window_or_unsure_asks_the_owner(manager, model_time):
     "17:00 is full today, but I can do 18:30 tomorrow. Would that work?", "I can do 18:30 tomorrow",
     "I can do Friday at 18:30?", "18:30 with a £20 deposit", "18:30 but only for 45 minutes", "18:00 or 18:30",
     "Not 18:30 either, only 20:00 or later", "18:30 on the 20th?", "We can do 18:30 until 19:30",
+    "Only 18:30 at the bar, I'm afraid", "I've got 18:30 on a shared table", "18:30, 90 mins max on the table",
+    "17:00 no. 18:30 yes, 2 hour limit", "18:30 for 4 only, tables of two are gone", "18:30 at our Soho branch?",
+    "How about 6:30pm? Card details needed to hold it",
 ])
 def test_window_asks_the_owner_for_another_day_a_condition_or_two_times(manager):
     e, acts, asked = counter(manager, "18:30")
@@ -69,7 +72,8 @@ def test_window_asks_the_owner_for_another_day_a_condition_or_two_times(manager)
 
 @pytest.mark.parametrize("manager", ["Sorry, 17:00 is full, I can do 18:30",
                                      "Sorry, 17:00 is fully booked, but I can do 18:30. Would that work?",
-                                     "We have 18:30 if that works?", "May I offer 18:30 instead?"])
+                                     "We have 18:30 if that works?", "May I offer 18:30 instead?",
+                                     "I can do 18:30 for 2"])
 def test_window_takes_a_plain_offer(manager):
     e, acts, asked = counter(manager, "18:30")
     assert not asked and e.facts.get("time") == "18:30" and "18:30 works" in " ".join(sends(acts))

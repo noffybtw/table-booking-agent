@@ -100,7 +100,9 @@ OTHER_DAY_RE = re.compile(r"\b(?:tomorrow|tmrw|yesterday|next (?:week|month)|thi
                           r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}(?:st|nd|rd|th))\b|\b\d{1,2}/\d{1,2}\b|"
                           r"\b\d{1,2} may\b|\bmay \d{1,2}\b", re.I)
 CONDITION_RE = re.compile(r"\bdeposit|[£$€]|\bminimum spend\b|\bonly for\b|\bfor (?:\d+|an?|one|two|half an?) "
-                          r"(?:minutes?|mins?|hours?|hrs?)\b|\buntil\b|\btill\b|\bprovided\b|\bas long as\b", re.I)
+                          r"(?:minutes?|mins?|hours?|hrs?)\b|\buntil\b|\btill\b|\bprovided\b|\bas long as\b|"
+                          r"\b(?:bar|counter|shared|communal|outside|terrace|branch|limit|max|card)\b|"
+                          r"\bback (?:by|after|in)\b|\bfor (?!2\b)(?:\d+|three|four|five|six)\b", re.I)  # "for 2" is the party
 # "but" and "if" after the offered time ("18:30 but only for 45 minutes"); "if that works" is not a condition
 AFTER_CONDITION_RE = re.compile(r"\b(?:but|if)\b(?! (?:that(?:'s| is)? )?(?:works?|suits?|helps|ok|okay|any good|"
                                 r"you(?:'d)? like)\b)", re.I)
