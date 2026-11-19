@@ -19,8 +19,8 @@ def test_fix_dashes_quotes_emoji():
 
 
 def test_clean_opening_passes(facts):
-    text = engine.OPENING.format(greeting="Good morning", who="Yaroslav", time=facts.get("time"))
-    assert text == "Good morning. I'm Yaroslav's assistant - could I book a table for two today at 17:00, please?"
+    text = engine.OPENING.format(greeting="Good morning", time=facts.get("time"))
+    assert text == "Good morning. I'm an assistant - could I book a table for two today at 17:00, please?"
     assert "AI" not in text.split()
     assert rules(text, facts) == set()
 
@@ -101,8 +101,7 @@ def test_every_engine_template_passes(facts):
     facts.set("guest_name", "Yaroslav", "owner", 1)
     t = facts.get("time")
     templates = [
-        engine.OPENING.format(greeting="Good afternoon", who="Yaroslav", time=t),
-        engine.HOLD.format(who="Yaroslav"), engine.STILL_CHECKING.format(who="Yaroslav"),
+        engine.OPENING.format(greeting="Good afternoon", time=t), engine.HOLD, engine.STILL_CHECKING,
         engine.SORRY_WAIT + engine.NAME_ONLY.format(name="Yaroslav"), engine.FOLLOW_UP_1.format(time=t),
         engine.FOLLOW_UP_2.format(time=t), engine.BAD_VOICE, engine.TECH_HOLD, engine.CLOSING, restate.ASK_RESTAURANT,
     ]

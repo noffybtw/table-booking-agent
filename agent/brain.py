@@ -249,8 +249,8 @@ def simple_rules(facts: FactStore, transcript: list[str], event: str) -> Decisio
     """Tiny offline stand-in for dry mode with --llm fake. Not used by the real agent."""
     last = next((t for t in reversed(transcript) if t.startswith("MANAGER")), "").lower()
     if "open the conversation" in event.lower():
-        return Decision.model_validate(D("Hello. I'm Yaroslav's assistant - could I book a table for two today "
-                                         "at 17:00, please?", intent="greeting"))
+        return Decision.model_validate(D("Hello. I'm an assistant - could I book a table for two today at 17:00, "
+                                         "please?", intent="greeting"))
     if re.search(r"\b(yes|booked|confirmed|fine|done|sure)\b", last):
         return Decision.model_validate(D(action="final_restatement", intent="agreed", manager_agreed=True))
     return Decision.model_validate(D("Thank you. Could I book a table for two today at 17:00, please?"))

@@ -17,9 +17,9 @@ from agent.facts import FactStore
 
 NEW, OPEN, CONFIRMED = "new", "open", "confirmed"
 
-OPENING = "{greeting}. I'm {who}'s assistant - could I book a table for two today at {time}, please?"
-HOLD = "Let me just check that with {who}, I'll be back in a moment."
-STILL_CHECKING = "Thank you for bearing with me, I'm still checking that with {who}."
+OPENING = "{greeting}. I'm an assistant - could I book a table for two today at {time}, please?"
+HOLD = "Let me just check that and come back to you in a moment."
+STILL_CHECKING = "Thank you for bearing with me, I'm still checking that."
 SORRY_WAIT = "Sorry for the wait, I'm still confirming that detail."
 NAME_ONLY = " Would it be all right to hold the table under the name {name} for now?"
 FOLLOW_UP_1 = "Sorry to chase - just checking whether a table for two at {time} today might be possible?"
@@ -96,10 +96,10 @@ class Engine:
 
     def _opening(self) -> list:
         now = self.now()
-        tmpl = OPENING.format(greeting=clock.greeting(now), who=self.who, time=self.facts.get("time"))
+        tmpl = OPENING.format(greeting=clock.greeting(now), time=self.facts.get("time"))
         event = (f"Open the conversation now. In London it is {clock.hhmm(now)}, so greet with "
-                 f"'{clock.greeting(now)}'. Introduce yourself as {self.who}'s assistant (do not say AI here) "
-                 f"and ask for a table for two today at {self.facts.get('time')}. One message, for example: "
+                 f"'{clock.greeting(now)}'. Introduce yourself just as an assistant, with no name (do not say AI "
+                 f"here), and ask for a table for two today at {self.facts.get('time')}. One message, for example: "
                  f"\"{tmpl}\"")
         acts: list = []
         d = self._decide(event, acts)
@@ -307,7 +307,7 @@ class Engine:
             needs.append(k)
         if time_open and "alternative_time" not in needs and "alternative_time" not in self.pending:
             needs.append("alternative_time")
-            notes.append(f"manager offered {offered}: another time is {self.who}'s call, asking")
+            notes.append(f"manager offered {offered}: another time is the owner's call, asking")
 
         agreed_now = d.action == "final_restatement" or d.slots.manager_agreed
         if agreed_now and (time_open or "alternative_time" in self.pending):
@@ -345,7 +345,7 @@ class Engine:
             if text:
                 acts += self._restate(text, sig)
                 if new_keys and reply:
-                    acts += self._say(reply, event, "holding line for the owner question", fallback=self._hold())
+                    acts += self._say(reply, event, "holding line for the owner question", fallback=HOLD)
                 return acts
             if "restaurant_name" in restate.missing(f):
                 if reply and policy.asks_restaurant(reply):
@@ -372,11 +372,11 @@ class Engine:
             return acts
         if d.action in ("wait", "end") or not reply:
             if new_keys:
-                acts += self._say(self._hold(), event, "holding line while the owner is asked", fallback=self._hold(),
+                acts += self._say(HOLD, event, "holding line while the owner is asked", fallback=HOLD,
                                   voice=voice)
             return acts
         why = d.decision or d.action
-        fallback = self._hold() if (new_keys or self.pending) else None
+        fallback = HOLD if (new_keys or self.pending) else None
         n_before = self.n_out
         acts += self._say(reply, event, why, fallback=fallback, voice=voice)
         if self.phase == CONFIRMED and d.intent in PLEASANTRY and self.n_out > n_before:
@@ -445,7 +445,7 @@ class Engine:
                 why += f" (drafts blocked: {guard.describe(first)}; template sent)"
                 acts.append(NotifyOwner(f"Guard заблокировал ответ модели ({guard.describe(first)}), "
                                         f"отправлен шаблон: «{text}»"))
-                if not self.pending and self.phase != NEW and fallback == self._hold():
+                if not self.pending and self.phase != NEW and fallback == HOLD:
                     acts += self._ask_help()
         if probs:
             acts.append(NotifyOwner(f"Guard заблокировал ответ, ничего не отправлено: {guard.describe(first)}"))
@@ -462,9 +462,6 @@ class Engine:
         q, buttons, contact = policy.owner_question("reply_help", self.facts, last)
         self.pending["reply_help"] = {"said": last, "turn": self.turn}
         return [AskOwner("reply_help", q, buttons, contact), Log("owner_question", {"key": "reply_help", "question": q})]
-
-    def _hold(self) -> str:
-        return HOLD.format(who=self.who)
 
     def _arm_silence(self) -> list:
         if self.phase == CONFIRMED or self.pending:
