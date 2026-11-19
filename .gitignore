@@ -9,3 +9,4 @@ runs/*/raw/
 # runs of sim and dry mode are local noise; test/live runs are kept
 runs/sim-*/
 runs/dry-*/
+runs/preflight-*/
