@@ -89,6 +89,34 @@ def time_sure(hhmm: str, texts_: list[str]) -> bool:
     return any(c == {hhmm} for t in texts_ for _, c in guard.find_times(t))
 
 
+OTHER_DAY_RE = re.compile(r"\b(?:tomorrow|tmrw|yesterday|next (?:week|month)|this weekend|weekend|monday|tuesday|"
+                          r"wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thur?s?|fri|sat|sun|"
+                          r"jan(?:uary)?|feb(?:ruary)?|march|april|june|july|aug(?:ust)?|sept?(?:ember)?|"
+                          r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}(?:st|nd|rd|th))\b|\b\d{1,2}/\d{1,2}\b|"
+                          r"\b\d{1,2} may\b|\bmay \d{1,2}\b", re.I)
+CONDITION_RE = re.compile(r"\bdeposit|[£$€]|\bminimum spend\b|\bonly for\b|\bfor (?:\d+|an?|one|two|half an?) "
+                          r"(?:minutes?|mins?|hours?|hrs?)\b|\buntil\b|\btill\b|\bprovided\b|\bas long as\b", re.I)
+# "but" and "if" after the offered time ("18:30 but only for 45 minutes"); "if that works" is not a condition
+AFTER_CONDITION_RE = re.compile(r"\b(?:but|if)\b(?! (?:that(?:'s| is)? )?(?:works?|suits?|helps|ok|okay|any good|"
+                                r"you(?:'d)? like)\b)", re.I)
+
+
+def plain_offer(text: str, offered: str, booked: str | None) -> str | None:
+    """None when the manager's message offers `offered` alone: one time besides the booked one, no other day, no
+    condition. Otherwise why not, for the decision line; the owner is asked then."""
+    times = [(said, c) for said, c in guard.find_times(text or "") if booked not in c]
+    if len(times) != 1 or times[0][1] != {offered}:
+        return "more than one time or not a sure time"
+    if OTHER_DAY_RE.search(text):
+        return "another day is named"
+    if CONDITION_RE.search(text):
+        return "a condition comes with it"
+    at = text.lower().find(times[0][0].lower())
+    if at >= 0 and AFTER_CONDITION_RE.search(text[at:]):
+        return "a condition comes with it"
+    return None
+
+
 def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, list[tuple[str, str]], bool]:
     """The question for the owner in OWNER_LANG, inline buttons (label, value), and whether to offer a contact button."""
     said = texts.t("manager_said", text=manager_last.strip()[:300]) if manager_last.strip() else ""

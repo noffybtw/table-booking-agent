@@ -445,7 +445,9 @@ class Engine:
         window_took = False
         if (self.profile and self.profile.window and said is not None and offered and offered != f.get("time")
                 and "alternative_time" not in self.pending):
-            if self.profile.inside(offered) and policy.time_sure(offered, self.manager_texts[-1:]):
+            heard = " ".join(said)
+            plain = policy.plain_offer(heard, offered, f.get("time"))
+            if self.profile.inside(offered) and policy.time_sure(offered, [heard]) and plain is None:
                 # the owner said before the start that this time works: no question, the manager hears it works
                 f.set("time", offered, "owner", self.turn)
                 f.confirm("time")
@@ -453,8 +455,9 @@ class Engine:
                 window_took = self.took_time = True
                 notes.append(f"manager offered {offered}: inside the owner's window {self.profile.window}, taken")
             else:
-                why_not = "outside the owner's window" if not self.profile.inside(offered) else "the time is not sure"
-                notes.append(f"manager offered {offered}: {why_not} {self.profile.window}, asking the owner")
+                why_not = ("outside the owner's window" if not self.profile.inside(offered) else
+                           "the time is not sure" if not policy.time_sure(offered, [heard]) else plain)
+                notes.append(f"manager offered {offered}: {why_not} (window {self.profile.window}), asking the owner")
         offered = f.get("offered_time")
         time_open = bool(offered and offered != f.get("time"))
         needs = []

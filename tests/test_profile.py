@@ -56,6 +56,25 @@ def test_outside_the_window_or_unsure_asks_the_owner(manager, model_time):
     assert [a.key for a in asked] == ["alternative_time"] and e.facts.get("time") == "17:00" and not e.agreed
 
 
+@pytest.mark.parametrize("manager", [
+    "17:00 is full today, but I can do 18:30 tomorrow. Would that work?", "I can do 18:30 tomorrow",
+    "I can do Friday at 18:30?", "18:30 with a £20 deposit", "18:30 but only for 45 minutes", "18:00 or 18:30",
+    "Not 18:30 either, only 20:00 or later", "18:30 on the 20th?", "We can do 18:30 until 19:30",
+])
+def test_window_asks_the_owner_for_another_day_a_condition_or_two_times(manager):
+    e, acts, asked = counter(manager, "18:30")
+    assert [a.key for a in asked] == ["alternative_time"] and e.facts.get("time") == "17:00" and not e.agreed
+    assert "18:30 works" not in " ".join(sends(acts))
+
+
+@pytest.mark.parametrize("manager", ["Sorry, 17:00 is full, I can do 18:30",
+                                     "Sorry, 17:00 is fully booked, but I can do 18:30. Would that work?",
+                                     "We have 18:30 if that works?", "May I offer 18:30 instead?"])
+def test_window_takes_a_plain_offer(manager):
+    e, acts, asked = counter(manager, "18:30")
+    assert not asked and e.facts.get("time") == "18:30" and "18:30 works" in " ".join(sends(acts))
+
+
 def test_no_window_in_the_profile_asks_the_owner():
     e, acts, asked = counter("Sorry, 17:00 is full. I can do 18:30", "18:30", {"guest_name": "Yaroslav"})
     assert [a.key for a in asked] == ["alternative_time"]
