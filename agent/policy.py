@@ -273,6 +273,19 @@ def find_in(texts: list[str], value: str) -> str | None:
     return None
 
 
+def with_the(texts: list[str], name: str) -> str:
+    """The name with "the" when a manager message has it right before the name as written ("the Ivy"), so the
+    restatement reads "at the Ivy", not "at Ivy". The name is matched case-sensitively: "the rules" is not "Rules"."""
+    if name.lower().startswith("the "):
+        return name
+    pat = re.compile(r"\b([Tt]he)\s+(" + re.escape(name) + r")(?!\w)")
+    for t in reversed(texts):
+        m = pat.search(t)
+        if m:
+            return f"{m.group(1)} {m.group(2)}"
+    return name
+
+
 MORNING_RE = re.compile(r"\b(?:in the|this) morning\b", re.I)
 _HOUR = r"(1[0-2]|[1-9]|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
 # "I can do 7", "7 instead?", "6ish?": a bare hour, read only to back the model's own offered time
@@ -327,7 +340,7 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
         if found is None and slots.restaurant_name.lower().startswith("the "):
             found = find_in(manager_texts, slots.restaurant_name[4:])
         if found:
-            ok["restaurant_name"] = found
+            ok["restaurant_name"] = with_the(manager_texts, found)
         else:
             rejected.append(f"restaurant_name {slots.restaurant_name!r} not in the manager's messages")
     if slots.offered_time:

@@ -66,8 +66,13 @@ def is_correction(prev: tuple | None, sig: tuple) -> bool:
 
 
 def signature(facts: FactStore) -> tuple:
-    """Values a restatement carries; a change after CONFIRMED means a corrected restatement is due."""
-    return tuple(facts.get(k) for k in REQUIRED + ("guest_name", "condition"))
+    """Values a restatement carries; a change after CONFIRMED means a corrected restatement is due. The restaurant
+    is compared without a leading "the" and case, so "Ivy" becoming "the Ivy" is not a change."""
+    vals = [facts.get(k) for k in REQUIRED + ("guest_name", "condition")]
+    i = REQUIRED.index("restaurant_name")
+    if vals[i] is not None:
+        vals[i] = re.sub(r"^the\s+", "", str(vals[i]).strip(), flags=re.I).lower()
+    return tuple(vals)
 
 
 def verify(text: str, facts: FactStore, unnamed: bool = False) -> list[str]:
