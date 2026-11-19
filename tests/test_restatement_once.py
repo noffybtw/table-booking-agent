@@ -161,6 +161,15 @@ def test_a_stalling_answer_to_the_confirm_question_is_not_a_yes():
     assert not policy.manager_yes("Yes, the chef says so", "17:00")
 
 
+def test_the_likeliest_answers_to_the_confirm_question_are_a_yes():
+    from agent import policy
+    for t in ("Yes, it's confirmed", "It's confirmed", "Yes, confirmed under Kostyk", "Yes, the table is booked",
+              "Yes, confirmed for 17:00", "Yes, see you tonight", "Yes, all set"):
+        assert policy.manager_yes(t, "17:00", "Kostyk"), t
+    for t in ("Yes, for 18:30", "It's full", "Yes, let me check", "Yes, confirmed under Smith", "It's not"):
+        assert not policy.manager_yes(t, "17:00", "Kostyk"), t
+
+
 def test_a_number_that_is_not_the_booking_time_is_not_a_yes():
     from agent import policy
     for t in ("Ok, 18.30 then", "Yes, 3", "Ok, 6", "Yes, 18", "Ok 1830", "Yes, 20/11"):

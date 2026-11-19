@@ -258,7 +258,8 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
 # the manager's plain yes to "Is the table ... all confirmed, then?": no question, no "but", no other time
 MANAGER_YES_RE = re.compile(r"^[\s,.!]*(?:(?:ok|okay|yes|yep|yeah|yup|sure|correct|confirmed|all confirmed|that's right|"
                             r"that's correct|that's fine|right|fine|perfect|great|lovely|absolutely|definitely|"
-                            r"indeed|of course|all good|done|booked|all booked|it is|that is)\b|\U0001F44D)", re.I)
+                            r"indeed|of course|all good|done|booked|all booked|it is|that is|"
+                            r"it's (?:all )?(?:confirmed|booked|fine|done|set|sorted))\b|\U0001F44D)", re.I)
 # "no" that means yes; taken out before the stop list
 NO_PROBLEM_RE = re.compile(r"\bno (?:problem|worries)\b", re.I)
 MANAGER_NOT_RE = re.compile(r"\b(?:no|not|sorry|but|unfortunately|actually|wait|hold on|only|instead)\b|n't", re.I)
@@ -273,26 +274,28 @@ MANAGER_YES_WORDS = ("ok", "okay", "yes", "yep", "yeah", "yup", "sure", "correct
                      "it is", "that is")
 MANAGER_YES_ALLOW = ("that's", "that is", "it is", "all", "all good", "confirmed", "booked", "fine", "good", "great",
                      "perfect", "lovely", "thanks", "thank you", "cheers", "see you", "then", "the time", "for two",
-                     "at §", "§")
+                     "at §", "§", "it's", "is", "the table", "the booking", "you're", "you are", "under", "for",
+                     "today", "tonight", "later", "soon", "set", "sorted")
 _YES_PHRASES = sorted({tuple(p.split()) for p in MANAGER_YES_WORDS + MANAGER_YES_ALLOW}, key=len, reverse=True)
 
 
-def _only_yes_words(text: str, time: str | None) -> bool:
+def _only_yes_words(text: str, time: str | None, name: str | None = None) -> bool:
     t = text.lower().replace("\u2019", "'").replace("\U0001F44D", " ")
+    phrases = _YES_PHRASES + [(w,) for w in re.findall(r"[a-z']+", (name or "").lower())]  # "confirmed under Kostyk"
     for said, cands in guard.find_times(text):
         if time in cands:
             t = t.replace(said.lower(), " § ")
     words = re.findall(r"[a-z']+|\d+|§", t)  # a number that is not the booking time is not a yes word
     i = 0
     while i < len(words):
-        step = next((len(p) for p in _YES_PHRASES if tuple(words[i:i + len(p)]) == p), 0)
+        step = next((len(p) for p in phrases if tuple(words[i:i + len(p)]) == p), 0)
         if not step:
             return False
         i += step
     return True
 
 
-def manager_yes(text: str, time: str | None) -> bool:
+def manager_yes(text: str, time: str | None, name: str | None = None) -> bool:
     t = (text or "").strip()
     if not t or "?" in t or len(t.split()) > 12:
         return False
@@ -303,7 +306,7 @@ def manager_yes(text: str, time: str | None) -> bool:
         return False
     if any(time not in cands for _, cands in guard.find_times(t)):
         return False
-    return bool(MANAGER_YES_RE.match(t)) and _only_yes_words(t, time)
+    return bool(MANAGER_YES_RE.match(t)) and _only_yes_words(t, time, name)
 
 
 STALL_WORDS_RE = re.compile(r"\b(?:wait|hold on|sorry)\b", re.I)

@@ -409,7 +409,8 @@ class Engine:
             notes.append(f"manager offered {offered}: another time is the owner's call, asking")
 
         agreed_now = d.action == "final_restatement" or d.slots.manager_agreed
-        if not agreed_now and self.confirm_asked and said is not None and policy.manager_yes(" ".join(said), f.get("time")):
+        if (not agreed_now and self.confirm_asked and said is not None
+                and policy.manager_yes(" ".join(said), f.get("time"), f.get("guest_name"))):
             agreed_now = True
             notes.append("a plain yes to the confirm question: agreed")
         if said is not None and not policy.manager_stall(" ".join(said), f.get("time")):
