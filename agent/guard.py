@@ -1,7 +1,8 @@
 """Deterministic check of every outgoing text. The model writes; this decides whether it may be sent.
 
 fix() repairs style slips (long dashes, curly quotes, emoji). check() returns the facts in a text that are not
-backed by the FactStore or by what the manager or owner wrote. Anything it returns blocks the text.
+backed by the FactStore or by what the manager or owner wrote, and the name of the person the table is for
+unless the owner gave it as the booking name. Anything it returns blocks the text.
 """
 from __future__ import annotations
 
@@ -307,6 +308,14 @@ def check(text: str, facts: FactStore, chat_texts: list[str]) -> list[Problem]:
         if at_start and (w in SENTENCE_OK or w.endswith("ly")):
             continue
         probs.append(Problem("name", f"{w!r} is not in the facts or the chat"))
+
+    # the person the table is for is never named, unless the owner gave that name for the booking
+    guest = str(facts.get("guest_name") or "")
+    for part in re.findall(r"[^\W\d_]{2,}", str(facts.get("on_behalf_of") or "")):
+        word = rf"\b{re.escape(part)}\b"
+        if re.search(word, text, re.I) and not re.search(word, guest, re.I):
+            probs.append(Problem("owner_name", f"{part!r} names the person you book for; give a name only as "
+                                               f"guest_name, after the manager asked"))
 
     for rx in EXPERIENCE_RES:
         m = rx.search(text)

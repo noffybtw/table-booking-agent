@@ -74,13 +74,13 @@ def test_unknown_names_and_venues(facts):
     assert "name" in rules("Could we sit near Hyde Park?", facts)
     assert "name" in rules("Is that The Ivy?", facts)
     assert "name" not in rules("Is that The Crown & Anchor?", facts, ["We're The Crown & Anchor"])
-    assert "name" not in rules("I'm an AI assistant booking for Yaroslav.", facts)
+    assert rules("I'm an AI assistant making this booking.", facts) == set()
 
 
 def test_payment(facts):
     assert "payment" in rules("I can pay a deposit of 20 pounds.", facts)
     assert "payment" in rules("We'll pay when we arrive.", facts)
-    assert "payment" not in rules("I'll check about the deposit with Yaroslav.", facts)
+    assert "payment" not in rules("I'll check about the deposit and come back to you.", facts)
 
 
 def test_restaurant_name_before_the_manager_gave_it(facts):
@@ -98,13 +98,50 @@ def test_restatement_without_restaurant_is_not_built(facts):
 
 
 def test_every_engine_template_passes(facts):
-    facts.set("guest_name", "Yaroslav", "owner", 1)
+    # no guest_name: the templates name nobody
     t = facts.get("time")
     templates = [
         engine.OPENING.format(greeting="Good afternoon", time=t), engine.HOLD, engine.STILL_CHECKING,
-        engine.SORRY_WAIT + engine.NAME_ONLY.format(name="Yaroslav"), engine.FOLLOW_UP_1.format(time=t),
-        engine.FOLLOW_UP_2.format(time=t), engine.BAD_VOICE, engine.TECH_HOLD, engine.CLOSING, restate.ASK_RESTAURANT,
+        engine.SORRY_WAIT, engine.FOLLOW_UP_1.format(time=t), engine.FOLLOW_UP_2.format(time=t), engine.BAD_VOICE,
+        engine.TECH_HOLD, engine.CLOSING, restate.ASK_RESTAURANT,
     ]
     for text in templates:
         assert guard.check(guard.fix(text), facts, []) == [], text
         assert "—" not in text and "–" not in text
+        assert "yaroslav" not in text.lower()
+    facts.set("guest_name", "Yaroslav", "owner", 1)
+    text = engine.SORRY_WAIT + engine.NAME_ONLY.format(name="Yaroslav")
+    assert guard.check(text, facts, []) == []
+
+
+@pytest.mark.parametrize("variant", [0, 1, 2])
+@pytest.mark.parametrize("correction", [False, True])
+@pytest.mark.parametrize("condition", [None, "table back by 18:30"])
+def test_every_restatement_passes_without_a_guest_name(facts, variant, correction, condition):
+    for k in ("time", "date", "party_size"):
+        facts.confirm(k)
+    facts.set("restaurant_name", "The Crown & Anchor", "manager", 1, confirmed=True)
+    chat = ["We're The Crown & Anchor"]
+    if condition:
+        facts.set("condition", condition, "manager", 2)
+        chat.append("We need the table back by 18:30")
+    text = restate.build(facts, variant=variant, correction=correction)
+    assert "yaroslav" not in text.lower()
+    assert guard.check(guard.fix(text), facts, chat) == [], text
+
+
+@pytest.mark.parametrize("text", ["I'm afraid 17:00 is the time Yaroslav needs.", "I'm Yaroslav's assistant.",
+                                  "I'll check with yaroslav.", "It's for YAROSLAV, thank you."])
+def test_owner_name_blocked_without_a_guest_name(facts, text):
+    assert "owner_name" in rules(text, facts)
+    assert "owner_name" in rules(text, facts, ["Is the table for Yaroslav?"])  # the chat does not make it a booking name
+
+
+def test_owner_name_passes_once_it_is_the_guest_name(facts):
+    assert "owner_name" not in rules("I'm an assistant.", facts)
+    assert "owner_name" not in rules("Thank you for asking: Y-A-R-O-S-L-A-V.", facts)  # not the name as a word
+    facts.set("guest_name", "Yaroslav Kostyk", "owner", 3)
+    assert rules("The booking can go under Yaroslav.", facts) == set()
+    other = FactStore.for_task(clock.parse_now("2026-11-19T08:00"))
+    other.set("guest_name", "Anna", "owner", 3)
+    assert "owner_name" in rules("It's under Anna, for Yaroslav.", other)
