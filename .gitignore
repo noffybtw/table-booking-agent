@@ -5,8 +5,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 state/
-runs/*/raw/
-# runs of sim and dry mode are local noise; test/live runs are kept
-runs/sim-*/
-runs/dry-*/
-runs/preflight-*/
+# run logs stay local: they hold the chats, masked or not
+runs/
