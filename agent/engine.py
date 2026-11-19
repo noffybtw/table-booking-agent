@@ -555,7 +555,9 @@ class Engine:
                               voice=voice)
             return acts
         if restate_due:
-            if self.asked_restaurant and said is not None and "restaurant_name" in restate.missing(f):
+            # with a profile "at your restaurant" comes only after 10 minutes of silence (_restate_on_silence)
+            if (self.asked_restaurant and said is not None and not self.profile
+                    and "restaurant_name" in restate.missing(f)):
                 self.unnamed = True
                 acts.append(NotifyOwner(texts.t("no_restaurant")))
             text = restate.build(f, variant=self.turn, correction=restate.is_correction(self.restated_sig, sig),
@@ -580,6 +582,10 @@ class Engine:
                     acts += self._say(f"{lead} {ASK_RESTAURANT_ALSO}", event,
                                       f"{source}; restaurant name unknown, asking before the restatement",
                                       fallback=restate.ASK_RESTAURANT, voice=voice)
+                elif lead and self.from_profile:
+                    # the restaurant was asked already: the detail only, the restatement waits for the name
+                    acts += self._say(lead, event, "from the owner's profile; the restatement waits for the "
+                                      "restaurant's name (asked already)", fallback=lead, voice=voice)
                 elif reply and policy.asks_restaurant(reply):
                     acts += self._say(reply, event, "agreed; restaurant name unknown, asking before the restatement",
                                       fallback=restate.ASK_RESTAURANT, voice=voice)
@@ -589,6 +595,8 @@ class Engine:
                                       fallback=restate.ASK_RESTAURANT, voice=voice)
                 elif reply:
                     acts += self._say(reply, event, d.decision, fallback=restate.ASK_RESTAURANT, voice=voice)
+                else:
+                    acts += self._arm_silence()  # nothing to say: the 10 minutes to "at your restaurant" run
                 self.asked_restaurant = True
                 return acts
 

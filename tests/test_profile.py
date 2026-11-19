@@ -6,10 +6,10 @@ import pytest
 from agent import texts
 from agent.brain import D, FakeBrain
 from agent.config import ROOT, SafetyError
-from agent.events import AskOwner, Event
+from agent.events import AskOwner, Event, Schedule
 from agent.profile import from_dict, load
 from sim import harness
-from sim.scenarios import BY_NAME, PROFILE
+from sim.scenarios import BY_NAME, PROFILE, REST
 from test_owner_answers import opened, sends
 
 COUNTER = dict(action="ask_owner", intent="counter_offer", needs_owner=["alternative_time"])
@@ -158,3 +158,35 @@ def test_start_message_lists_the_profile_with_the_phone_masked(monkeypatch):
         text = from_dict(PROFILE).owner_text()
         assert "Yaroslav" in text and "+44 77** ***123" in text and "17:00" in text and "19:00" in text
         assert "900123" not in text.replace("***123", "") and text.startswith(texts.t("start_profile", items="")[:8])
+
+
+def _restatements(acts):
+    return [a.text for a in acts if getattr(a, "restatement", False)]
+
+
+def _r7_flow():
+    e = with_profile(PROFILE, D("Thank you - let me just check whether 18:30 works.", **COUNTER, offered_time="18:30"),
+                     D("Let me just check those details.", action="ask_owner", intent="asks_info",
+                       needs_owner=["guest_name", "phone"], manager_agreed=True))
+    first = sends(e.handle(Event("manager_message", text="Sorry, 17:00 is full, I can do 18:30")))
+    assert first == ["Thank you, 18:30 works for us. Could I also take the restaurant's name for my note?"]
+    acts = e.handle(Event("manager_message", text="Lovely. What name and phone number should I put it under?"))
+    assert not _restatements(acts)
+    out = sends(acts)
+    assert len(out) == 1 and "Yaroslav" in out[0] and "+44 7700 900123" in out[0] and "restaurant" not in out[0]
+    return e, acts
+
+
+def test_one_restatement_with_a_profile_waits_for_the_restaurant():
+    e, _ = _r7_flow()
+    e.brain.push(D(**dict(action="final_restatement", intent="agreed", manager_agreed=True), restaurant_name=REST))
+    acts = e.handle(Event("manager_message", text=f"Thanks. We're {REST}."))
+    said = _restatements(acts)
+    assert len(said) == 1 and REST in said[0] and "18:30" in said[0] and e.n_restated == 1
+
+
+def test_profile_restates_at_your_restaurant_after_10_minutes_of_silence():
+    e, acts = _r7_flow()
+    g = [a for a in acts if isinstance(a, Schedule) and a.name == "silence"][-1].gen
+    said = _restatements(e.handle(Event("timer", text="silence", gen=g)))
+    assert len(said) == 1 and "at your restaurant" in said[0] and e.n_restated == 1
