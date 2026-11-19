@@ -32,7 +32,7 @@ FOLLOW_UP_2 = "Hello again. Whenever you have a moment, I'd be grateful for a qu
 BAD_VOICE = "Sorry, I couldn't play that voice note. Could you type it, please?"
 TECH_HOLD = "Thank you - give me just a moment, please."
 CLOSING = "Thank you very much, have a lovely day."
-ASK_RESTAURANT_ALSO = "Could I also take the restaurant's name for my note?"
+ASK_RESTAURANT_ALSO = "Sorry, could you remind me of the restaurant's name?"
 CONFIRM_Q = "Is the table for {people} at {time} today all confirmed, then?"
 CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
 # "Please let me know if that works." in front of the confirm question is a second question: cut it

@@ -1,4 +1,4 @@
-"""Voice notes. In: Groq whisper-large-v3. Out: edge-tts en-GB-RyanNeural, Groq Orpheus as the fallback, then text only.
+"""Voice notes. In: Groq whisper-large-v3. Out: edge-tts en-US-BrianMultilingualNeural, Groq Orpheus as the fallback, then text only.
 
 Telegram plays a voice note when it is OGG/Opus, so every synthesis ends in `ffmpeg -c:a libopus`.
 Orpheus (console.groq.com/docs/text-to-speech/orpheus): WAV only, at most 200 characters per request,
@@ -18,7 +18,7 @@ from openai import OpenAI
 from agent.config import GROQ_BASE_URL
 
 STT_MODEL = "whisper-large-v3"
-EDGE_VOICE = "en-GB-RyanNeural"
+EDGE_VOICE = "en-US-BrianMultilingualNeural"
 ORPHEUS_MODEL = "canopylabs/orpheus-v1-english"
 ORPHEUS_VOICE = "daniel"
 ORPHEUS_MAX = 200

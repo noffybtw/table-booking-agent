@@ -27,7 +27,7 @@ def test_question_for_an_owner_field_is_found(text):
 
 
 @pytest.mark.parametrize("text", [
-    "Could I also take the restaurant's name for my note?",
+    "Sorry, could you remind me of the restaurant's name?",
     "What is the name of the restaurant?",
     "The booking can go under Yaroslav, contact number +44 7700 900123.",
     "The booking can be under the name Yaroslav and the phone number +3809*****864. Could you let me know the "

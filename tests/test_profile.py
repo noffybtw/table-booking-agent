@@ -206,7 +206,7 @@ def _r7_flow():
                      D("Let me just check those details.", action="ask_owner", intent="asks_info",
                        needs_owner=["guest_name", "phone"], manager_agreed=True))
     first = sends(e.handle(Event("manager_message", text="Sorry, 17:00 is full, I can do 18:30")))
-    assert first == ["Thank you, 18:30 works for us. Could I also take the restaurant's name for my note?"]
+    assert first == ["Thank you, 18:30 works for us. Sorry, could you remind me of the restaurant's name?"]
     acts = e.handle(Event("manager_message", text="Lovely. What name and phone number should I put it under?"))
     assert not _restatements(acts)
     out = sends(acts)

@@ -59,7 +59,7 @@ Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.js
 
 ## Voice
 
-When the manager sends a voice note, the reply is a voice note with the same text as its caption, so the screenshot stays readable. The restatement always goes as a voice note. TTS is edge-tts `en-GB-RyanNeural`, with Groq `canopylabs/orpheus-v1-english` (voice `daniel`) as the fallback, converted to OGG/Opus by ffmpeg. If both fail, the same text goes as a normal message. The voice reads the text after the guard has checked it.
+When the manager sends a voice note, the reply is a voice note with the same text as its caption, so the screenshot stays readable. The restatement always goes as a voice note. TTS is edge-tts `en-US-BrianMultilingualNeural` (the most natural free voice I found; `EDGE_VOICE` in `agent/voice.py`), with Groq `canopylabs/orpheus-v1-english` (voice `daniel`) as the fallback, converted to OGG/Opus by ffmpeg. If both fail, the same text goes as a normal message. The voice reads the text after the guard has checked it.
 
 ## Logs
 

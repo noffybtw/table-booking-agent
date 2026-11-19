@@ -15,7 +15,7 @@ OPENERS = (
     "Perfect, thank you. To confirm, that's",
 )
 CORRECTION_OPENER = "Thank you for the correction. So that's now"
-ASK_RESTAURANT = "Thank you. Could I just take the restaurant's name for my note?"
+ASK_RESTAURANT = "Thank you. Sorry, could you remind me of the restaurant's name?"
 UNNAMED = "your restaurant"  # after one ask the manager still gave no name
 
 
