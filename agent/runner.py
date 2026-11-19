@@ -127,8 +127,12 @@ class Runner:
             if isinstance(a, SendVoice) and self.synthesize:
                 ogg = await self._safe(self.synthesize(a.text))
                 if ogg:
-                    msg_id = await self.transport.send_voice(ogg, a.text)
-                    via = "voice"
+                    try:
+                        msg_id = await self.transport.send_voice(ogg, a.text)
+                        via = "voice"
+                    except Exception as e:  # noqa: BLE001 - voice forbidden, flood wait, upload error: send it as text
+                        self.log.record(Log("note", {"text": f"voice note #{a.n} not sent "
+                                                             f"({type(e).__name__}: {str(e)[:120]}), sending it as text"}))
             if via == "text":
                 msg_id = await self.transport.send_text(a.text)
         except Exception as e:  # noqa: BLE001 - logged and told to the owner, the run goes on

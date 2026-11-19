@@ -110,3 +110,41 @@ def test_runner_sends_text_when_tts_fails(tmp_path):
     asyncio.run(r.execute([SendVoice("Lovely.", "restatement", 3)]))
     assert t.sent == [("text", "Lovely.")]
     assert "OUT agent #3: " in (tmp_path / "decisions.md").read_text()
+
+
+def test_runner_sends_text_when_the_voice_upload_fails(tmp_path):
+    from agent.runner import Runner
+
+    class VoiceForbidden(Exception):
+        pass
+
+    class T:
+        def __init__(self):
+            self.sent = []
+
+        async def send_text(self, text):
+            self.sent.append(("text", text))
+            return 1
+
+        async def send_voice(self, path, caption):
+            raise VoiceForbidden("the user does not accept voice messages")
+
+    class O:
+        def __init__(self):
+            self.notes = []
+        async def ask(self, *a): pass
+        async def notify(self, text): self.notes.append(text)
+        async def mirror(self, *a): pass
+
+    async def tts(text):
+        return str(tmp_path / "out-1.ogg")
+
+    t, o = T(), O()
+    log = RunLog(tmp_path, lambda: clock.parse_now("2026-11-19T08:00"))
+    r = Runner(engine=None, transport=t, owner=o, runlog=log, timers=None, synthesize=tts)
+    asyncio.run(r.execute([SendVoice("Perfect, thank you. To confirm, that's a table for two.", "restatement", 4)]))
+    assert t.sent == [("text", "Perfect, thank you. To confirm, that's a table for two.")]
+    assert r.sent == [("text", "Perfect, thank you. To confirm, that's a table for two.")]
+    log_text = (tmp_path / "decisions.md").read_text()
+    assert "voice note #4 not sent (VoiceForbidden" in log_text and "OUT agent #4: " in log_text
+    assert "NOT SENT" not in log_text
