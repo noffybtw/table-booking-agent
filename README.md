@@ -21,6 +21,7 @@ python run.py --mode sim --scenario happy --llm groq   # the same scripts agains
 python run.py --mode dry                           # you type as the manager, the real model answers, nothing is sent
 python run.py --mode test --now 2026-11-19T08:00   # Telegram, @noffybtw (my main account) plays the manager
 python run.py --mode live --live-confirm vlad_dev_7    # the real manager
+python run.py --mode preflight                     # Telegram checks that write to nobody, report in runs/preflight-<id>/
 python -m pytest -q                                # offline tests; -m groq adds one run on the real model
 python -m agent.render runs/<run-id>               # transcript PNG of any run
 ```
@@ -28,6 +29,7 @@ python -m agent.render runs/<run-id>               # transcript PNG of any run
 - `sim` plays a scripted manager (and me, and the clock) against the real engine on a virtual clock. Each step has expectations, for example "the owner was asked for the phone", "nothing with 18:30 was sent", "the restatement went as a voice note".
 - `dry` reads lines from the console: a plain line is a manager message; `voice: ...`, `edit: ...`, `media: a sticker`, `owner: ...`, `owner phone: ...`, `/stop` cover the rest. `--tts` writes real voice files to `runs/<id>/raw/`.
 - `test` talks only to usernames in `ALLOWED_TEST_PEERS` (`agent/config.py`). `--now` moves "today" so an evening test still books a 17:00 that has not passed.
+- `preflight` uses the agent's session under the same lock, checks that it is the agent account, resolves @noffybtw and @vlad_dev_7 without sending them anything, sends a short voice note only to the agent's own Saved Messages, downloads it and runs it through speech-to-text, and calls `getMe` on my bot. It exits 0 only if every check passes.
 - `live` refuses unless the username is typed again in `--live-confirm`, the clock is real, and it is not later than 16:30 in London.
 - Both Telegram modes take a lock in `state/`, so two processes never share the session. They do not start after `--until` (17:00 London by default) and stop there if the booking is not confirmed; after the restatement they stay until 60 minutes (`--linger`) pass with no message from the manager or me.
 

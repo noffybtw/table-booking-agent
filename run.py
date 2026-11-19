@@ -5,6 +5,8 @@
   dry   you play the manager in the console, the real model answers, nothing is sent anywhere
   test  Telegram, manager = a test account from ALLOWED_TEST_PEERS (default @noffybtw, Yaroslav's main account)
   live  Telegram, manager = @vlad_dev_7; needs --live-confirm vlad_dev_7, the real clock, before 16:30 London
+  preflight  Telegram checks that write to nobody: session, account, peers resolved, a voice note to the
+        agent's own Saved Messages and back through STT, the owner bot by getMe; report in runs/preflight-<id>/
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ Ctrl-D ends the run."""
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--mode", choices=["sim", "dry", "test", "live"], required=True)
+    p.add_argument("--mode", choices=["sim", "dry", "test", "live", "preflight"], required=True)
     p.add_argument("--scenario", default="all", help="sim: a scenario name or 'all'")
     p.add_argument("--llm", choices=["fake", "groq"], help="default: fake for sim, groq otherwise")
     p.add_argument("--now", help="clock override, ISO (London if no offset), e.g. 2026-11-19T08:00; not in live")
@@ -268,6 +270,39 @@ async def cmd_dry(args, secrets) -> int:
     return 0
 
 
+# ---------- preflight ----------
+
+async def cmd_preflight(args, secrets) -> int:
+    from agent import preflight
+    from agent.owner_bot import OwnerBot
+    from agent.transport_tg import SessionLock
+    from agent.voice import Voice
+    need = ["TG_SESSION", "TG_API_ID", "TG_API_HASH", "OWNER_BOT_TOKEN", "GROQ_API_KEY"]
+    missing = [k for k in need if not secrets.get(k)]
+    if missing:
+        print(f"missing in .env: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    rd = RUNS_DIR / f"preflight-{stamp(clock.london_now())}"
+    values = secrets.all_values()
+
+    def scrub(s: str) -> str:
+        for v in values:
+            s = s.replace(v, "[secret]")
+        return s
+    with SessionLock(STATE_DIR / "session.lock"):
+        from telethon import TelegramClient
+        client = TelegramClient(session_arg(secrets.get("TG_SESSION")), int(secrets.get("TG_API_ID")),
+                                secrets.get("TG_API_HASH"))
+        bot = OwnerBot(secrets.get("OWNER_BOT_TOKEN"), int(secrets.get("OWNER_CHAT_ID") or 0), asyncio.Queue())
+        try:
+            ok, _ = await preflight.run(preflight.SavedMessagesOnly(client), Voice(secrets.get("GROQ_API_KEY"), rd / "raw"),
+                                        bot, rd, scrub)
+        finally:
+            await bot.close()
+    print(f"report: {rd / 'report.txt'}")
+    return 0 if ok else 1
+
+
 # ---------- test / live ----------
 
 def session_arg(value: str):
@@ -384,6 +419,8 @@ def main(argv=None) -> int:
             return cmd_sim(args, secrets)
         if args.mode == "dry":
             return asyncio.run(cmd_dry(args, secrets))
+        if args.mode == "preflight":
+            return asyncio.run(cmd_preflight(args, secrets))
         return asyncio.run(cmd_telegram(args, secrets, peer))
     except SafetyError as e:
         print(f"refused: {e}", file=sys.stderr)

@@ -15,6 +15,7 @@ STATE_DIR = ROOT / "state"
 RUNS_DIR = ROOT / "runs"
 
 LIVE_MANAGER = "vlad_dev_7"
+AGENT_ACCOUNT_ID = 7357586975  # @alexithymia0x, the account the agent writes from; preflight checks get_me against it
 ALLOWED_TEST_PEERS = {"noffybtw"}
 ON_BEHALF_OF = "Yaroslav"
 LIVE_LATEST = (16, 30)  # London; later than this a live run would book a slot that is about to pass
@@ -77,7 +78,7 @@ def check_safety(mode: str, peer: str | None, live_confirm: str | None, now: dat
     the real clock, and not after 16:30 London.
     """
     peer_n = norm_username(peer)
-    if mode in ("sim", "dry"):
+    if mode in ("sim", "dry", "preflight"):
         return peer_n
     if mode == "test":
         if peer_n == LIVE_MANAGER:
