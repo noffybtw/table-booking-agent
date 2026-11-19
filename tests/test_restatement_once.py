@@ -259,3 +259,17 @@ def test_agreement_taken_back_by_fully_booked_sends_no_restatement():
     acts = e.handle(Event("manager_message", text="Sorry, my mistake, we are full tonight."))
     assert restatements(acts) == [] and not e.agreed
     assert restatements(silence(e)) == []
+
+
+def test_the_retry_after_a_model_failure_keeps_the_owner_answer():
+    from agent.brain import BrainDown
+
+    e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
+    e.handle(Event("manager_message", text=f"Yes, 17:00 is fine at {REST}. What name?"))
+    e.brain.push(BrainDown("groq: 503"))
+    acts = e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
+    assert texts(acts) == ["Thank you - give me just a moment, please."]
+    e.brain.push(D("Thank you for waiting.", intent="asks_info"))
+    out = texts(e.handle(Event("timer", text="brain_retry", gen=e.gen["retry"])))
+    assert len(out) == 1 and "Kostyk" in out[0] and out[0].endswith("all confirmed, then?"), out
+    assert e.answered is None and e.confirm_asked

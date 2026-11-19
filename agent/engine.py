@@ -56,7 +56,7 @@ class Engine:
         self.asked_restaurant = False
         self.unnamed = False                 # asked once, no restaurant name: restate with "at your restaurant"
         self.confirm_asked = False           # "Is the table ... all confirmed, then?" went out, no answer yet
-        self.answered: str | None = None     # the owner question answered in this turn
+        self.answered: str | None = None     # the owner question just answered; kept until a model reply has used it
         self.restated_sig: tuple | None = None
         self.before_restate: tuple = (None, NEW, False)  # restated_sig, phase, closed before the last restatement
         self.n_restated = 0
@@ -87,7 +87,6 @@ class Engine:
             self.held.append(ev)
             return [Log("note", {"text": f"paused, {ev.kind} kept for later"})]
         self.turn += 1
-        self.answered = None
         if ev.kind == "opening":
             return self._opening()
         if ev.kind in ("manager_message", "manager_voice", "manager_media", "manager_edit"):
@@ -371,7 +370,9 @@ class Engine:
             return acts
         self.retry = None
         self.brain_down_sent = False
-        return acts + self._apply(d, event, voice, said)
+        acts += self._apply(d, event, voice, said)
+        self.answered = None  # used: a retry after a model failure still has it, the next turn does not
+        return acts
 
     def _apply(self, d: Decision, event: str, voice: bool, said: list[str] | None = None) -> list:
         acts: list = []
