@@ -225,7 +225,7 @@ class Engine:
                 return [Log("owner_answer", {"key": key, "text": text,
                                              "result": "neither yes nor no, question sent again"}),
                         AskOwner(key, f"{again} {q}", buttons, contact)]
-            return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
+            return [Log("owner_answer", {"key": key, "text": text, "result": "not a name in Latin letters, asked again"}),
                     AskOwner(key, texts.t("name_again"), [], False)]
         summary = "owner note, passed to the model"
         if key == "guest_name":

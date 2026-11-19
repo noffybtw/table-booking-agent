@@ -37,7 +37,7 @@ def test_cyrillic_name_is_not_stored_and_asked_again():
         assert sends(acts) == [] and not e.brain.queue  # no model turn, nothing to the manager
         again = [a for a in acts if isinstance(a, AskOwner)]
         assert len(again) == 1 and again[0].key == "guest_name" and again[0].question == texts.t("name_again")
-        assert any(isinstance(a, Log) and a.data.get("result") == "not in Latin letters, asked again" for a in acts)
+        assert any(isinstance(a, Log) and a.data.get("result") == "not a name in Latin letters, asked again" for a in acts)
 
 
 def test_latin_name_is_accepted():
@@ -170,3 +170,15 @@ def test_status_is_in_the_console_language(monkeypatch):
         status = [a.text for a in e.handle(Event("owner_command", text="status")) if isinstance(a, NotifyOwner)]
         assert len(status) == 1 and status[0].startswith(want), status
         assert "STATE" not in status[0] and "pending" not in status[0]
+
+
+def test_not_a_name_is_said_so_in_both_tables(monkeypatch):
+    e = opened()
+    asked(e, "Lovely. What name shall I put it under?", "guest_name")
+    for lang, want in (("uk", "Це не схоже на ім'я. Напиши тільки ім'я латиницею, як його сказати менеджеру "
+                              "(наприклад, Yaroslav)."),
+                       ("ru", "Это не похоже на имя. Напиши только имя латиницей, как его сказать менеджеру "
+                              "(например, Yaroslav).")):
+        monkeypatch.setenv("OWNER_LANG", lang)
+        acts = e.handle(Event("owner_answer", key="guest_name", text="Yaroslav +44 7700 900123"))
+        assert [a.question for a in acts if isinstance(a, AskOwner)] == [want]
