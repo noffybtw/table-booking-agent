@@ -314,6 +314,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                 raise SafetyError(f"{peer!r} resolved to {resolved!r}; refusing")
             engine = Engine(brain, FactStore.for_task(now()), now=now, timings=timings)
             runner = Runner(engine, transport, owner, log, timers, synthesize=voice.synthesize)
+            owner.on_stop = runner.stop_now
             await owner.send(texts.t("start", mode=args.mode, peer=peer))
             started = True
             poller = asyncio.get_running_loop().create_task(owner.poll())

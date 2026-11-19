@@ -93,9 +93,17 @@ class Runner:
         self.sent: list[tuple[str, str]] = []
 
     async def feed(self, ev: Event) -> list:
-        acts = self.engine.handle(ev)
+        # the model call blocks (pacing, retries): in a worker thread the loop keeps typing, read-acks and the bot
+        # polling alive. One consumer awaits each turn, so turns stay serial.
+        acts = await asyncio.to_thread(self.engine.handle, ev)
         await self.execute(acts)
         return acts
+
+    def stop_now(self, reason: str = "owner /stop") -> None:
+        """/stop from the bot takes effect at once, even in the middle of a slow turn: nothing more is sent."""
+        if not self.stopped:
+            self.stopped = True
+            self.log.record(Stop(reason))
 
     async def execute(self, acts: list) -> None:
         for a in acts:

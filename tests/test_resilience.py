@@ -105,3 +105,55 @@ def test_every_draft_blocked_sends_hold_asks_the_owner_and_arms_the_follow_up():
     g = e.gen["owner:reply_help"]
     later = e.handle(Event("timer", text="owner_wait", key="reply_help", gen=g))
     assert [a.text for a in later if isinstance(a, SendText)] == ["Sorry for the wait, I'm still confirming that detail."]
+
+
+def test_a_slow_model_turn_leaves_the_loop_free_and_stop_works_at_once(tmp_path):
+    import time
+    from agent.brain import D, FakeBrain
+    from agent.engine import Engine
+    from agent.owner_bot import OwnerBot
+    from agent.runner import Runner
+
+    class T:
+        def __init__(self):
+            self.sent = []
+
+        async def send_text(self, text):
+            self.sent.append(text)
+            return 1
+
+    class O:
+        async def ask(self, *a): pass
+        async def notify(self, *a): pass
+        async def mirror(self, *a): pass
+
+    def slow(facts, transcript, event):
+        time.sleep(0.5)  # a paced or retried Groq call
+        return D("Lovely, thank you.")
+
+    now = clock.parse_now("2026-11-19T08:00")
+    log = RunLog(tmp_path, lambda: now)
+    engine = Engine(FakeBrain([slow]), FactStore.for_task(now), now=lambda: now)
+    t = T()
+    runner = Runner(engine, t, O(), log, timers=SimpleNamespace(schedule=lambda s: None))
+    bot = OwnerBot("1:x", 5550001, asyncio.Queue(),
+                   http=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"ok": True, "result": True}))))
+    bot.on_stop = runner.stop_now
+
+    async def go():
+        typing = 0
+        turn = asyncio.create_task(runner.feed(Event("manager_message", text="Hello?")))
+        for i in range(20):  # the typing indicator loop of the transport
+            await asyncio.sleep(0.02)
+            typing += 1
+            if i == 5:
+                await bot.handle_update({"update_id": 1, "message": {"chat": {"id": 5550001}, "text": "/stop"}})
+        await turn
+        await bot.close()
+        return typing
+
+    ticks = asyncio.run(go())
+    assert ticks == 20 and runner.stopped
+    assert t.sent == []  # the slow turn finished after /stop: its reply was dropped
+    log_text = (tmp_path / "decisions.md").read_text()
+    assert "STOP owner /stop" in log_text and "stopped, #1 not sent" in log_text

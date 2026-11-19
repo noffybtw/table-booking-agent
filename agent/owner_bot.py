@@ -33,6 +33,7 @@ class OwnerBot:
         self.offset: int | None = None
         self.asked: dict[int, str] = {}  # message_id of a question -> key
         self.running = False
+        self.on_stop = None  # called at once on /stop, before the event waits in the queue behind a slow turn
 
     def __repr__(self) -> str:
         return f"OwnerBot(chat_id={self.chat_id})"
@@ -129,6 +130,8 @@ class OwnerBot:
         if text.startswith("/"):
             cmd = text[1:].split()[0].split("@")[0].lower()
             if cmd in COMMANDS:
+                if cmd == "stop" and self.on_stop:
+                    self.on_stop()
                 return Event("owner_command", text=cmd)
             return None
         reply_to = (msg.get("reply_to_message") or {}).get("message_id")
