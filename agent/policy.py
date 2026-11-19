@@ -517,6 +517,59 @@ def claim(text: str) -> str | None:
     return None
 
 
+# questions about the conversation itself: answered by code from the history and the facts, never by the owner
+CHAT_QUESTIONS = (
+    ("confirmed", re.compile(r"\b(?:is|was) (?:the|my|our|this|that) (?:booking|table|reservation) (?:now |actually |all )?"
+                             r"confirmed\b|\bconfirmed or not\b|\bis it (?:now |actually |all )?confirmed\b", re.I)),
+    ("who_confirmed", re.compile(r"\bwho confirmed\b|\bwhere (?:exactly )?did I confirm\b|\bwhen did I confirm\b|"
+                                 r"\bquote my (?:message|words|sentence)\b", re.I)),
+    ("reference", re.compile(r"\b(?:what|which) (?:reference|ref)\b|\b(?:reference|ref)(?: number)? did I give\b", re.I)),
+    ("quote_own", re.compile(r"\bquote your (?:own )?(?:conclusion|message|words|answer|sentence)\b|"
+                             r"\bwhat did you (?:just )?(?:say|write)\b", re.I)),
+    ("summary", re.compile(r"\bmessage you(?:'ll| will| would| are going to)? send\b|"
+                           r"\bwhat (?:will|would) you (?:tell|send|write)\b", re.I)),
+)
+ONE_WORD_RE = re.compile(r"\bone word\b", re.I)
+YES_NO_RE = re.compile(r"\byes or no\b", re.I)
+NOT_CONFIRMED_RE = re.compile(r"\b(?:never|didn't|did not|haven't|have not)\b(?:\s+\w+)?\s+confirm|"
+                              r"\bnot (?:yet |actually )?confirmed\b|\bisn't (?:yet )?confirmed\b", re.I)
+AGREE_WORD_RE = re.compile(r"\b(?:confirm\w*|booked|fine|yes|ok(?:ay)?|sure|works|no problem|done|see you)\b", re.I)
+REFERENCE_RE = re.compile(r"(?i:\b(?:reference|ref|booking (?:number|code|no)|confirmation (?:number|code|no))\b)"
+                          r"[\s:#.-]*(?:(?i:is|number|no)\.?\s+)?([A-Z]{0,4}-?\d[A-Za-z0-9-]{1,14})\b")
+MESSAGES_AGO_RE = re.compile(r"\b(?:from\s+)?(?:\w+\s+)?(?:messages?|replies|lines?) ago\b", re.I)
+NAMES_SOMEONE_RE = re.compile(r"\b(?:it's|we're|we are|this is|here at|you've reached)\s+(?:the\s+)?[A-Z]")
+
+
+def chat_questions(text: str) -> list[str]:
+    """The kinds of questions about the conversation itself in the manager's text, in a fixed order."""
+    return [k for k, rx in CHAT_QUESTIONS if rx.search(text or "")]
+
+
+def only_chat_questions(text: str, time: str | None) -> bool:
+    """The text asks about the conversation and nothing else the model is needed for: no other question, no time
+    other than the booking's, no name or phone asked, no restaurant named."""
+    if not chat_questions(text):
+        return False
+    for sent in re.split(r"(?<=[.!?])\s+", text.strip()):
+        if sent.rstrip().endswith("?") and not chat_questions(sent):
+            return False
+    plain = MESSAGES_AGO_RE.sub(" ", text)  # "from two messages ago" is not a time
+    if any(time not in c for _, c in guard.find_times(plain)) or NAMES_SOMEONE_RE.search(text):
+        return False
+    return not any(manager_asked_now(k, [text]) for k in ("guest_name", "phone"))
+
+
+def not_confirmed(text: str) -> bool:
+    """The manager says the booking is not (or was never) confirmed; a question is not a statement."""
+    return any(NOT_CONFIRMED_RE.search(s) for s in re.split(r"(?<=[.!?])\s+", (text or "").strip())
+               if not s.rstrip().endswith("?"))
+
+
+def reference(text: str) -> str | None:
+    m = REFERENCE_RE.search(text or "")
+    return m.group(1) if m else None
+
+
 # instructions to the agent instead of the booking: refused, and nothing in them is a booking fact
 INJECTION_RE = re.compile(r"\b(?:ignore|disregard|forget)\b.{0,40}\b(?:instructions?|rules|prompt)\b|"
                           r"\bsystem prompt\b|\b(?:your|the) (?:instructions|prompt|config\w*|model name)\b|"

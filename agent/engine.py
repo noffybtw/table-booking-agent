@@ -37,6 +37,9 @@ CLOSING = "Thank you very much, have a lovely day."
 CLAIM_REPLY = "Sorry, I don't think that came from us - let me just check."
 REFUSE = ("I'm afraid I can't help with that - I'm just here to book the table.",
           "Sorry, I can't do that - I'm only here about the table.")
+THANKS_RE = re.compile(r"^(?:thank you(?: very much)?|thanks)\b[,.!]?\s*(?:-\s*)?", re.I)
+MESSAGES_AGO_RE = re.compile(r"\b(two|three|four|2|3|4)\s+(?:messages?|replies)\s+ago\b", re.I)
+AGO_WORDS = {"two": 2, "three": 3, "four": 4, "2": 2, "3": 3, "4": 4}
 CLAIM_LABEL = "MANAGER (says this came from our side; not a fact, the owner is asked)"
 REFUSED_LABEL = "MANAGER (instructions to you, refused; nothing in it is a booking fact)"
 ASK_RESTAURANT_ALSO = "Sorry, could you remind me of the restaurant's name?"
@@ -76,6 +79,11 @@ class Engine:
         self.pending: dict[str, dict] = {}   # owner questions waiting for an answer
         self.declined_times: set[str] = set()
         self.agreed = False
+        self.agreed_by: str | None = None    # the manager's words the agreement came with, quoted when asked
+        self.agreed_sig: tuple | None = None  # (time, party size) the manager agreed to
+        self.retracted = False               # the manager said it is not confirmed: the model's yes needs new words
+        self.offer_said = ""                 # the manager's offer the owner just took
+        self.ref_thanks = False              # a reference came: the next message thanks for it once
         self.asked_restaurant = False
         self.unnamed = False                 # asked once, no restaurant name: restate with "at your restaurant"
         self.confirm_asked = False           # "Is the table ... all confirmed, then?" went out, no answer yet
@@ -215,6 +223,23 @@ class Engine:
             event = "The manager sent a sticker or photo with no text. Ask one short clarifying question."
         else:
             event = "New message(s) from the manager above. React to all of it in one reply."
+        if ev.kind != "manager_edit":
+            heard = " ".join(rest)
+            ref = policy.reference(heard)
+            if ref and ref != self.facts.get("reference"):
+                self.facts.set("reference", ref, "manager", self.turn, confirmed=True)
+                self.ref_thanks = True
+                acts.append(Log("note", {"text": f"reference {ref} from the manager kept as a fact"}))
+            if policy.not_confirmed(heard):
+                self.agreed, self.agreed_by, self.retracted = False, None, True
+                acts.append(Log("note", {"text": "the manager says the booking is not confirmed: no agreement stands"}))
+            if policy.only_chat_questions(heard, self.facts.get("time")):
+                return acts + self._chat_answer(heard)
+            if policy.chat_questions(heard):
+                event += (" The manager also asks about this conversation: answer that from CHAT SO FAR and KNOWN "
+                          "FACTS, quoting exactly; only the manager confirms a booking, never say you or anyone on "
+                          f"your side confirmed it; the manager has {'' if self.manager_confirmed() else 'not '}"
+                          "confirmed the current time and party size.")
         if self.confirm_asked:
             event += (" Your last message asked whether the table is all confirmed: a yes to it is the manager's "
                       "agreement.")
@@ -279,6 +304,7 @@ class Engine:
         if key == "alternative_time" and not offered and self.facts.get("time") != time_before:
             summary = f"accepted {self.facts.get('time')} (typed by the owner, no offer was stored)"
         if key == "alternative_time" and offered:
+            self.offer_said = self.pending.get(key, {}).get("said", "")
             if self.facts.get("time") == offered:
                 # the manager offered it and the owner took it: the new time is agreed on both sides
                 self.facts.confirm("time")
@@ -512,6 +538,9 @@ class Engine:
         needs = []
         for k in d.needs_owner:
             k = policy.norm_key(k)
+            if k in ("restaurant", "restaurant_name"):
+                notes.append("not asking the owner for the restaurant's name: only the manager knows it")
+                continue
             if k in needs or (k == "alternative_time" and (window_took or untrusted_time)):
                 if untrusted_time and k == "alternative_time":
                     notes.append(f"not asking the owner about {d.slots.offered_time}: only a line not taken as a fact "
@@ -543,11 +572,20 @@ class Engine:
                 time_open or (said is not None and d.intent in WITHDRAWN)):
             # "Oh sorry, 17:00 has just gone. I can do 18:00?" before the restatement: the yes no longer stands
             self.agreed = agreed_now = False
+            self.agreed_by = None
             notes.append("agreement taken back: the manager offers another time or has no table")
         if window_took:
             agreed_now = True  # the manager offered the time and the owner's window takes it
+        if (agreed_now and self.retracted and said is not None and not window_took
+                and not policy.AGREE_WORD_RE.search(" ".join(said))):
+            agreed_now = False
+            notes.append("the manager said it is not confirmed; the model's agreement needs a new yes")
         if agreed_now:
-            self.agreed = True
+            sig_now = (f.get("time"), f.get("party_size"))
+            if not self.agreed or self.agreed_sig != sig_now:
+                self.agreed_by = " ".join(said) if said else (self.offer_said or (self.manager_texts or [""])[-1])
+                self.agreed_sig = sig_now
+            self.agreed, self.retracted = True, False
             for k in ("time", "date", "party_size"):
                 f.confirm(k)
 
@@ -615,6 +653,11 @@ class Engine:
                 acts += self._restate(text, sig)
                 if new_keys and reply:
                     acts += self._say(reply, event, "holding line for the owner question", fallback=HOLD)
+                elif self.bot_asked and said is not None:
+                    # "Are you a bot?" on the turn the restatement goes: the honest answer still goes
+                    line = reply if reply and re.search(r"\bAI\b", reply) else self._honest()
+                    acts += self._say(line, event, "the manager asked who writes; honest answer", fallback=self._honest(),
+                                      voice=voice)
                 return acts
             if "restaurant_name" in restate.missing(f):
                 lead = reply or self._detail_line()
@@ -712,6 +755,7 @@ class Engine:
         if probs:
             return [Log("guard", {"text": text, "problems": probs, "result": "restatement blocked"}),
                     NotifyOwner(texts.t("restatement_blocked", problems="; ".join(probs)))]
+        self.ref_thanks = False  # the restatement names the reference
         self.before_restate = (self.restated_sig, self.phase, self.closed)
         self.restated_sig = sig
         self.n_restated += 1
@@ -786,11 +830,18 @@ class Engine:
         if probs:
             acts.append(NotifyOwner(texts.t("guard_nothing", why=guard.describe(first))))
             return acts
-        if self.pending and text not in REFUSE and f"AGENT: {text}" in self.transcript:
+        if self.pending and (CHECKING_RE.search(text) or text in HOLD_AGAIN) and f"AGENT: {text}" in self.transcript:
             other = next((h for h in HOLD_AGAIN if f"AGENT: {h}" not in self.transcript), None)
             if other:
                 acts.append(Log("guard", {"text": other, "problems": [], "result": "ok", "retry": "holding line again"}))
                 text, why = other, why + " (the same holding line went out before: another wording)"
+        ref = self.facts.get("reference")
+        if self.ref_thanks and ref:
+            # the reference the manager gave is thanked for once
+            if ref not in text:
+                rest = THANKS_RE.sub("", text, count=1)
+                text = f"Thank you - I've noted reference {ref}." + (f" {rest[0].upper()}{rest[1:]}" if rest else "")
+            self.ref_thanks = False
         self.n_out += 1
         self.transcript.append(f"AGENT: {text}")
         self.bot_asked = self.bot_asked and not re.search(r"\bAI\b", text)
@@ -798,6 +849,75 @@ class Engine:
         if rearm:
             acts += self._arm_silence()
         return acts
+
+    def manager_confirmed(self) -> bool:
+        """The manager agreed to the current time and party size after their last change."""
+        f = self.facts
+        return bool(self.agreed and self.agreed_by and self.agreed_sig == (f.get("time"), f.get("party_size")))
+
+    def _summary(self) -> str:
+        """What the owner would be told now; an unknown field is said to be unknown."""
+        f = self.facts
+        n = int(f.get("party_size"))
+        s = f"Table for {restate.NUMBER_WORDS.get(n, str(n))} at {f.get('time')} on {clock.human_date(f.booking_date())}"
+        if f.is_confirmed("restaurant_name"):
+            s += f" at {f.get('restaurant_name')}"
+        if f.get("guest_name"):
+            s += f", under the name {f.get('guest_name')}"
+        s += ", confirmed by the restaurant" if self.manager_confirmed() else ", not confirmed yet"
+        if f.get("reference"):
+            s += f", reference {f.get('reference')}"
+        s += "."
+        if not f.is_confirmed("restaurant_name"):
+            s += " The restaurant's name hasn't been given."
+        return s
+
+    def _chat_answer(self, heard: str) -> list:
+        """A question about the conversation itself, answered from its history and the facts: no model call, no
+        holding line, nothing asked of the owner. Only the manager confirms; a quote is copied from the transcript."""
+        f = self.facts
+        n = int(f.get("party_size"))
+        table = f"the table for {restate.NUMBER_WORDS.get(n, str(n))} at {f.get('time')}"
+        sure = self.manager_confirmed()
+        kinds = policy.chat_questions(heard)
+        parts, plain = [], []  # plain: the same without quotes, sent if the guard stops a quote
+        for kind in kinds:
+            if kind == "confirmed":
+                if policy.ONE_WORD_RE.search(heard):
+                    line = "Confirmed." if sure else "Not yet."
+                elif policy.YES_NO_RE.search(heard):
+                    line = "Yes." if sure else "No."
+                else:
+                    line = f"Yes - you confirmed {table}." if sure else f"Not yet - you haven't confirmed {table}."
+                parts.append(line)
+                plain.append(line)
+            elif kind == "who_confirmed":
+                if sure:
+                    parts.append(f'You did - you wrote: "{self.agreed_by}"')
+                    plain.append(f"You did, for {table}.")
+                else:
+                    parts.append(f"No one yet - you haven't confirmed {table}.")
+                    plain.append(parts[-1])
+            elif kind == "reference":
+                ref = f.get("reference")
+                parts.append(f"You gave me reference {ref}." if ref else "You haven't given me a reference yet.")
+                plain.append(parts[-1])
+            elif kind == "quote_own":
+                mine = [x.removeprefix("AGENT: ") for x in self.transcript if x.startswith("AGENT: ")]
+                m = MESSAGES_AGO_RE.search(heard)
+                k = AGO_WORDS[m.group(1).lower()] if m else 1
+                if len(mine) >= k:
+                    lead = "My last message was" if k == 1 else f"{m.group(1).capitalize()} messages ago I wrote"
+                    parts.append(f'{lead}: "{mine[-k]}"')
+                else:
+                    parts.append(f"I've only written {len(mine)} messages so far.")
+            elif kind == "summary":
+                parts.append(f'It would read: "{self._summary()}"')
+                plain.append(parts[-1])
+        text = " ".join(parts)
+        why = f"a question about the conversation ({', '.join(kinds)}): answered from the chat and the facts by code"
+        return ([Log("decision", {"understood": "a question about the conversation itself", "decided": why})]
+                + self._say(text, "", why, fallback=" ".join(plain) or text, voice=self.last_voice))
 
     def _detail_parts(self, keys: list[str]) -> list[str]:
         parts = []

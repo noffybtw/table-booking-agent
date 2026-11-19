@@ -48,6 +48,8 @@ def build(facts: FactStore, variant: int = 0, correction: bool = False, unnamed:
         text += f", under the name {facts.get('guest_name')}"
     if facts.get("phone"):
         text += f", contact number {facts.get('phone')}"  # the owner gave it because the manager asked
+    if facts.get("reference"):
+        text += f", reference {facts.get('reference')}"
     text += "."
     if facts.get("condition"):
         text += f" Noted: {str(facts.get('condition')).rstrip('.')}."

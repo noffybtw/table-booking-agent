@@ -22,6 +22,7 @@ DESCRIPTIONS = {
     "offered_time": "time the manager offered instead",
     "condition": "condition the manager set",
     "owner_note": "private instruction from the person you book for",
+    "reference": "booking reference the manager gave",
 }
 
 
