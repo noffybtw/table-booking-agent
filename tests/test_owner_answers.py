@@ -119,7 +119,7 @@ def test_neither_yes_nor_no_sends_the_question_again(word):
     e = countered()
     acts = e.handle(Event("owner_answer", key="alternative_time", text=word))
     again = [a for a in acts if isinstance(a, AskOwner)]
-    assert len(again) == 1 and again[0].key == "alternative_time" and [v for _, v in again[0].buttons] == ["accept", "only"]
+    assert len(again) == 1 and again[0].key == "alternative_time" and [v for _, v in again[0].buttons] == ["accept@18:30", "only@18:30"]
     assert sends(acts) == [] and not e.brain.queue  # no model call
     assert e.facts.get("time") == "17:00" and e.facts.get("offered_time") == "18:30" and not e.declined_times
     assert "alternative_time" in e.pending

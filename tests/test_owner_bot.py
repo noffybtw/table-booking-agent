@@ -169,3 +169,20 @@ def test_the_poller_is_restarted_when_it_ends():
     assert asyncio.run(go()) == "polling again" and len(runs) == 3
     assert [n.split(" (")[0] for n in notes] == ["owner bot poller ended", "owner bot poller ended"]
     assert "RuntimeError: odd" in notes[0] and "returned" in notes[1]
+
+
+def test_a_question_asked_again_clears_the_older_keyboard():
+    sent, mids = [], iter([42, 43])
+
+    def handler(req):
+        method = req.url.path.rsplit("/", 1)[-1]
+        sent.append((method, json.loads(req.content)))
+        return ok({"message_id": next(mids)} if method == "sendMessage" else True)
+
+    async def go():
+        bot, _ = make(handler)
+        await bot.ask("alternative_time", "20:00?", [("20:00 підходить", "accept@20:00"), ("Тільки 17:00", "only@20:00")])
+        await bot.ask("alternative_time", "21:15?", [("21:15 підходить", "accept@21:15"), ("Тільки 17:00", "only@21:15")])
+    asyncio.run(go())
+    assert [m for m, _ in sent] == ["sendMessage", "editMessageReplyMarkup", "sendMessage"]
+    assert sent[1][1]["message_id"] == 42 and sent[1][1]["reply_markup"] == {"inline_keyboard": []}

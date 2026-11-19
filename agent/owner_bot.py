@@ -32,6 +32,7 @@ class OwnerBot:
         self.poll_timeout = poll_timeout
         self.offset: int | None = None
         self.asked: dict[int, str] = {}  # message_id of a question -> key
+        self.keyboards: dict[str, list[int]] = {}  # key -> messages whose buttons are still live
         self.running = False
         self.on_stop = None  # called at once on /stop, before the event waits in the queue behind a slow turn
         self.on_note = None  # gets a line for the run log when an update is skipped or the poller restarts
@@ -67,8 +68,17 @@ class OwnerBot:
         elif contact:
             markup = {"keyboard": [[{"text": texts.t("contact_button"), "request_contact": True}]],
                       "one_time_keyboard": True, "resize_keyboard": True}
+        for old in self.keyboards.pop(key, []):
+            # the question goes again (a reminder, a new time): the older copy loses its buttons
+            try:
+                await self.call("editMessageReplyMarkup", chat_id=self.chat_id, message_id=old,
+                                reply_markup={"inline_keyboard": []})
+            except OwnerBotError:
+                pass
         mid = await self.send(f"❓ {question}\n\n{texts.t('reply_hint')}", markup=markup)
         self.asked[mid] = key
+        if buttons and mid is not None:
+            self.keyboards[key] = [mid]
 
     async def notify(self, text: str) -> None:
         await self.send(f"ℹ️ {text}")

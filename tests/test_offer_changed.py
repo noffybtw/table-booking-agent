@@ -56,3 +56,76 @@ def test_same_offer_again_is_not_a_new_question():
     again = mgr(e, "Hello? Is 20:00 ok?", offer("20:00"))
     assert asked_time(again) == []
     assert e.pending["alternative_time"]["offered"] == "20:00"
+
+
+# R10 finding 1: a tap on an older or closed question, or an offer changed by an edit
+
+def tap(e, value):
+    return e.handle(Event("owner_answer", key="alternative_time", text="", value=value))
+
+
+def two_offers(profile=None):
+    e = opened(profile)
+    mgr(e, "Sorry, 17:00 is full. I can do 20:00, would that work?", offer("20:00"))
+    mgr(e, "or 21:15 if you'd rather eat later", offer("21:15"))
+    return e
+
+
+def test_buttons_carry_their_time():
+    e = opened()
+    acts = mgr(e, "Sorry, 17:00 is full. I can do 20:00, would that work?", offer("20:00"))
+    ask = next(a for a in acts if isinstance(a, AskOwner))
+    assert [v for _, v in ask.buttons] == ["accept@20:00", "only@20:00"]
+
+
+def test_tap_on_the_older_question_changes_nothing_and_asks_again():
+    from agent import texts
+    for old in ("accept@20:00", "only@20:00"):
+        e = two_offers()
+        acts = tap(e, old)
+        assert sent(acts) == [] and not e.brain.queue
+        again = [a for a in acts if isinstance(a, AskOwner)]
+        assert len(again) == 1 and again[0].question.startswith(texts.t("time_old")) and "21:15" in again[0].question
+        assert e.facts.get("time") == "17:00" and e.pending["alternative_time"]["offered"] == "21:15"
+        assert not e.declined_times
+        e.brain.push(D("Thank you, 21:15 works for us.", intent="counter_offer"))
+        out = sent(tap(e, "accept@21:15"))
+        assert out == ["Thank you, 21:15 works for us."] and e.facts.get("time") == "21:15"
+
+
+def test_tap_on_a_closed_question_after_the_restatement_changes_nothing():
+    for old in ("accept@20:00", "only@20:00", "accept@21:15"):
+        e = two_offers()
+        e.brain.push(D("Thank you, 21:15 works for us.", intent="counter_offer"))
+        tap(e, "accept@21:15")
+        e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True, restaurant_name="Dishoom"))
+        restated = mgr(e, "Lovely, 21:15 for two is booked. We're Dishoom.")
+        assert any("21:15" in t for t in sent(restated)) and e.n_restated == 1
+        acts = tap(e, old)
+        assert sent(acts) == [] and not [a for a in acts if isinstance(a, AskOwner)]
+        assert e.facts.get("time") == "21:15" and e.n_restated == 1
+
+
+def test_window_took_the_new_time_then_the_old_tap_changes_nothing():
+    e = opened(PROFILE)
+    mgr(e, "Sorry, 17:00 is full. I can do 20:00, would that work?", offer("20:00"))
+    acts = mgr(e, "Actually 18:30 has just come free", offer("18:30"))
+    assert e.facts.get("time") == "18:30" and "alternative_time" not in e.pending
+    assert any("18:30 works for us" in t for t in sent(acts))
+    out = tap(e, "accept@20:00")
+    assert sent(out) == [] and e.facts.get("time") == "18:30"
+
+
+def test_an_edited_offer_is_a_new_question():
+    from agent import texts
+    e = opened()
+    mgr(e, "Sorry, 17:00 is full. I can do 20:00", offer("20:00"))
+    e.brain.push(offer("21:15"))
+    acts = e.handle(Event("manager_edit", text="Sorry, 17:00 is full. I can do 21:15",
+                          old_text="Sorry, 17:00 is full. I can do 20:00"))
+    assert any("21:15" in q for q in asked_time(acts)) and e.pending["alternative_time"]["offered"] == "21:15"
+    assert sent(acts) == ["Thank you - let me just check whether 21:15 is possible for us and come back to you in a "
+                          "moment."]
+    old = tap(e, "accept@20:00")
+    assert sent(old) == [] and any(a.question.startswith(texts.t("time_old")) for a in old if isinstance(a, AskOwner))
+    assert e.facts.get("time") == "17:00"

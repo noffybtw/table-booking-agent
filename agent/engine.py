@@ -226,8 +226,19 @@ class Engine:
                                          "summary": "owner note with no open question: kept for the next model "
                                                     "turn, status sent to the owner"}),
                     NotifyOwner(texts.t("note_kept", status=self.status_text()))]
+        value, at, about = (ev.value or "").partition("@")
+        if key == "alternative_time" and ev.value and key not in self.pending:
+            # a button of a question that is closed: nothing changes for the manager
+            return [Log("owner_answer", {"key": key, "text": text, "result": "a button of a closed question, not taken"}),
+                    NotifyOwner(texts.t("time_closed", status=self.status_text()))]
+        if key == "alternative_time" and at and about != (self.pending[key].get("offered") or "-"):
+            # a button of an older question that named another time: the open question goes again
+            q, buttons, contact = policy.owner_question(key, self.facts, self.pending[key]["said"])
+            return [Log("owner_answer", {"key": key, "text": text, "result": "a button of an older question about "
+                                         f"{about}, the open one sent again"}),
+                    AskOwner(key, f"{texts.t('time_old')} {q}", buttons, contact)]
         offered, time_before = self.facts.get("offered_time"), self.facts.get("time")
-        line = policy.apply_owner_answer(self.facts, key, text, ev.value, ev.contact, self.turn)
+        line = policy.apply_owner_answer(self.facts, key, text, value or None, ev.contact, self.turn)
         if line is None:
             # the question stays open (and its timers run on); no model turn on an answer that is not taken
             if key == "alternative_time":
@@ -450,8 +461,9 @@ class Engine:
             notes.append(f"{', '.join(self.from_profile)} from the owner's profile, given before the start")
         offered = f.get("offered_time")
         open_q = self.pending.get("alternative_time")
-        if open_q and said is not None and offered and offered != open_q.get("offered"):
-            # the manager changed the offer while the owner is asked: the open question names another time, ask again
+        if open_q and offered and offered != open_q.get("offered"):
+            # the manager changed (or edited) the offer while the owner is asked: the open question names another
+            # time, ask again
             self.pending.pop("alternative_time")
             notes.append(f"the offer changed to {offered} while the owner was asked: asking again")
         window_took = False

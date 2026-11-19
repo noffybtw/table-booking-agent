@@ -165,7 +165,7 @@ def test_owner_takes_the_offer_and_the_model_says_agreed_still_restates():
 def test_a_bare_hour_backs_the_model_time(manager, model_time, want):
     e, asked = offered(manager, model_time)
     assert e.facts.get("offered_time") == want and want in asked[0].question
-    assert [v for _, v in asked[0].buttons] == ["accept", "only"]
+    assert [v for _, v in asked[0].buttons] == [f"accept@{want}", f"only@{want}"]
 
 
 @pytest.mark.parametrize("manager,model_time", [
@@ -180,7 +180,7 @@ def test_no_stored_offer_drops_the_accept_button_and_asks_for_the_time():
     from agent import texts
     e, asked = offered("Sorry, 17:00 is full. We have something later", "19:00")
     assert e.facts.get("offered_time") is None and len(asked) == 1
-    assert [v for _, v in asked[0].buttons] == ["only"] and texts.t("time_type") in asked[0].question
+    assert [v for _, v in asked[0].buttons] == ["only@-"] and texts.t("time_type") in asked[0].question
     again = [a for a in e.handle(Event("owner_answer", key="alternative_time", text="так")) if isinstance(a, AskOwner)]
     assert len(again) == 1 and again[0].question.startswith(texts.t("time_type"))
     e.brain.push(D("Thank you, 19:00 works for us.", intent="counter_offer"))

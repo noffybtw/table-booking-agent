@@ -128,14 +128,16 @@ def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, 
     """The question for the owner in OWNER_LANG, inline buttons (label, value), and whether to offer a contact button."""
     said = texts.t("manager_said", text=manager_last.strip()[:300]) if manager_last.strip() else ""
     if key == "alternative_time":
-        only = (texts.t("btn.only", time=facts.get("time")), "only")
-        if not facts.get("offered_time"):
+        # the buttons carry the time they are about ("-": none named): a tap on an older question is not taken for
+        # the time asked now
+        offered = facts.get("offered_time")
+        only = (texts.t("btn.only", time=facts.get("time")), f"only@{offered or '-'}")
+        if not offered:
             # no time was taken from the manager's words: an accept button would say nothing, the owner types it
             q = texts.t("q.alternative_time", offered=texts.t("other_time"), time=facts.get("time"))
             return f"{q} {texts.t('time_type')}{said}", [only], False
-        offered = facts.get("offered_time")
         q = texts.t("q.alternative_time", offered=offered, time=facts.get("time")) + said
-        return q, [(texts.t("btn.accept", offered=offered), "accept"), only], False
+        return q, [(texts.t("btn.accept", offered=offered), f"accept@{offered}"), only], False
     if key == "reply_help":
         return texts.t("q.reply_help") + said, [], False
     base = texts.t(f"q.{key}") if key in QUESTION_KEYS else texts.t("q.other", what=key.replace("_", " "))
