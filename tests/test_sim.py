@@ -1,5 +1,6 @@
 import pytest
 
+from agent import policy
 from agent.brain import FakeBrain
 from agent.events import SendText, SendVoice
 from sim import harness
@@ -45,6 +46,8 @@ def test_owner_never_named_before_the_owner_gives_the_name(scn, tmp_path):
     for s in res.steps:
         if s.step.kind == "owner" and s.step.key == "guest_name":
             break
+        if scn.profile and s.step.kind == "manager" and policy.manager_asked_now("guest_name", [s.step.text]):
+            break  # the profile gave the name before the start: it goes once the manager asks
         assert not any("yaroslav" in t.lower() for _, t in s.sent), s.sent
 
 

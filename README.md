@@ -16,7 +16,7 @@ Python 3.12, `pip install -r requirements.txt` (the versions it was tested with)
 | `OWNER_LANG` | language of the bot messages to me: `uk` (default) or `ru`; my answers are understood in Ukrainian, Russian and English either way |
 
 ```
-python run.py --mode sim --scenario all            # 18 scripted managers, offline, scripted model
+python run.py --mode sim --scenario all            # 21 scripted managers, offline, scripted model
 python run.py --mode sim --scenario happy --llm groq   # the same scripts against the real model
 python run.py --mode dry                           # you type as the manager, the real model answers, nothing is sent
 python run.py --mode test --now 2026-11-19T08:00   # Telegram, @noffybtw (my main account) plays the manager
@@ -31,6 +31,7 @@ python -m agent.render runs/<run-id>               # transcript PNG of any run
 - `test` talks only to usernames in `ALLOWED_TEST_PEERS` (`agent/config.py`). `--now` moves "today" so an evening test still books a 17:00 that has not passed.
 - `preflight` uses the agent's session under the same lock, checks that it is the agent account, resolves @noffybtw and @vlad_dev_7 without sending them anything, sends a short voice note only to the agent's own Saved Messages, downloads it and runs it through speech-to-text, and calls `getMe` on my bot. It exits 0 only if every check passes.
 - `live` refuses unless the username is typed again in `--live-confirm`, the clock is real, and it is not later than 16:30 in London.
+- `--profile <file>` (dry, test, live; off by default) reads a JSON file kept outside the repo with any of `guest_name` (Latin letters), `phone`, `accept_from` and `accept_to` (HH:MM, London, today). The agent then gives the name or phone as soon as the manager asks, without asking me, and takes another time inside that window without the buttons; a time outside it, or one it cannot read for sure ("6:30", "half six", "7"), still comes to me. The bot's start message lists what the profile holds, and the phone is masked in the logs and on screen.
 - Both Telegram modes take a lock in `state/`, so two processes never share the session. They do not start after `--until` (17:00 London by default) and stop there if the booking is not confirmed; after the restatement they stay until 60 minutes (`--linger`) pass with no message from the manager or me.
 
 Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.jsonl` and, for Telegram runs, `transcript.png`.
@@ -49,7 +50,7 @@ Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.js
 4. Code, not the model, decides what is accepted:
    - a restaurant name or an offered time counts only if it appears in the manager's own words;
    - any time other than 17:00 goes to me with two buttons ("18:30 works" / "Only 17:00"); a typed yes or no counts too, anything else brings the buttons back; the agent never accepts another time alone;
-   - name, phone or email go to me only if the manager asked for them;
+   - name, phone or email go to me only if the manager asked for them, and the manager is never asked for them. When one message asks for several, my answers go back together in one message (or what I answered goes after 10 minutes);
    - the final restatement is built by code from confirmed slots. If the manager agreed but never said the restaurant's name, the agent asks for it once; with no name after that it restates "at your restaurant" and tells me. While a name or phone the manager asked for is still with me, only a holding line goes, and the restatement follows my answer;
    - after the restatement the agent answers one thank-you or goodbye. Further thanks, goodbyes and emoji get no reply, and the decision line says why. Questions and changes always get an answer.
 5. Every outgoing text goes through `agent/guard.py`. It fixes long dashes and curly quotes and blocks: phone numbers and emails that are not mine, times and dates nobody said, a party size other than two, capitalised names that are not in the facts or the chat, my name unless I gave it as the booking name, payment promises, and first-person experience ("I did catch it", "I've been there"). A blocked draft is rewritten once with the problem named, then tried on the fallback model, then replaced by a safe template, and I get a note. A blocked text is never sent.

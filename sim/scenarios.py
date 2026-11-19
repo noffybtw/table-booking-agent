@@ -31,6 +31,7 @@ class Scenario:
     steps: list[Step]
     now: str = NOW
     restatements: int | None = None  # checked over the whole run, with any model
+    profile: dict | None = None      # the owner's profile (agent/profile.py); None: no profile
 
 
 def opening(**expect) -> Step:
@@ -57,6 +58,7 @@ def silence(minutes, *brain, **expect) -> Step:
 
 AGREE = dict(action="final_restatement", intent="agreed", manager_agreed=True, decision="manager agreed")
 RESTATED = {"sends": 1, "voice": True, "says": ["17:00", "Thursday 19 November", "two", REST]}
+PROFILE = {"guest_name": "Yaroslav", "phone": "+44 7700 900123", "accept_from": "17:00", "accept_to": "19:00"}
 RESTATED_1830 = {"sends": 1, "voice": True, "says": ["18:30", "Thursday 19 November", "two", REST], "never": ["06:30"]}
 
 SCENARIOS = [
@@ -152,6 +154,26 @@ SCENARIOS = [
         M(f"Lovely, thank you. It's {REST}.", D(**AGREE, restaurant_name=REST),
           **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav", "+44 7700 900123"]}),
     ], restatements=1),
+    Scenario("profile_name_phone", "the owner's profile holds the name and phone: the manager asks for both and gets "
+             "them at once, the owner is not asked", [
+        opening(),
+        M("Good morning! Yes, 17:00 for two is fine. What name and phone number should I put it under?",
+          D("Lovely, thank you. Let me just check those details.", action="ask_owner", intent="asks_info",
+            needs_owner=["guest_name", "phone"], manager_agreed=True, decision="name and phone asked"),
+          sends=1, says=["Yaroslav", "+44 7700 900123"], asks_none=True, never=["check"]),
+        M(f"Lovely, thank you. It's {REST}.", D(**AGREE, restaurant_name=REST),
+          **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav", "+44 7700 900123"]}, asks_none=True),
+    ], restatements=1, profile=PROFILE),
+    Scenario("profile_window", "17:00 is full, 18:30 offered; the owner's window 17:00-19:00 takes it with no owner "
+             "question; one restatement at 18:30", [
+        opening(),
+        M("Good afternoon! Sorry, 17:00 is fully booked, but I can do 18:30. Would that work?",
+          D("Thank you - let me just check whether 18:30 works and come back to you.", action="ask_owner",
+            intent="counter_offer", needs_owner=["alternative_time"], offered_time="18:30",
+            decision="another time is the owner's call"),
+          sends=1, says=["18:30 works"], asks_none=True, booked=False, never=["check"]),
+        M(f"Lovely, 18:30 it is. We're {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED_1830, asks_none=True),
+    ], restatements=1, profile=PROFILE),
     Scenario("agreed_name", "\"Yes, 17:00 is fine. What name?\", then only \"ok\": one restatement, no chasing", [
         opening(),
         # the real model often reads this as a question only (manager_agreed false); the code still gets there

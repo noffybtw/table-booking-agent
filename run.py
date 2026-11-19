@@ -46,6 +46,7 @@ def parse_args(argv=None):
     p.add_argument("--tts", action="store_true", help="dry: really synthesise voice notes into runs/<id>/raw/")
     p.add_argument("--widgets", action="store_true", help="owner booking card (optional, see README)")
     p.add_argument("--quiet", action="store_true", help="sim: do not print transcripts")
+    p.add_argument("--profile", help="dry/test/live: the owner's profile, a JSON file outside the repo (see README)")
     return p.parse_args(argv)
 
 
@@ -172,14 +173,16 @@ class ConsoleTransport:
         self.now, self.n = now, 0
 
     async def send_text(self, text):
+        from agent.runlog import mask_phone
         self.n += 1
-        print(f"{clock.hhmm(self.now(), True)} agent: {text}", flush=True)
+        print(f"{clock.hhmm(self.now(), True)} agent: {mask_phone(text)}", flush=True)
         return self.n
 
     async def send_voice(self, ogg_path, caption):
+        from agent.runlog import mask_phone
         self.n += 1
         where = f" [{ogg_path}]" if ogg_path and Path(ogg_path).exists() else ""
-        print(f"{clock.hhmm(self.now(), True)} agent (voice note){where}: {caption}", flush=True)
+        print(f"{clock.hhmm(self.now(), True)} agent (voice note){where}: {mask_phone(caption)}", flush=True)
         return self.n
 
 
@@ -218,6 +221,20 @@ def dry_event(line: str, last_text: str) -> Event | None:
     return manager_event([Msg(s)])
 
 
+def load_profile(args):
+    """--profile, or None. Only a masked summary is printed."""
+    if not args.profile:
+        return None
+    from agent.profile import load
+    profile = load(args.profile)
+    print(f"owner profile: {profile.summary()}", file=sys.stderr)
+    return profile
+
+
+def profile_header(profile) -> str:
+    return f" Owner profile: {profile.summary()}." if profile else ""
+
+
 async def cmd_dry(args, secrets) -> int:
     from agent.engine import Engine
     from agent.runlog import RunLog
@@ -225,7 +242,9 @@ async def cmd_dry(args, secrets) -> int:
     now = OffsetClock(clock.parse_now(args.now) if args.now else None)
     brain = make_brain(args.llm or "groq", secrets)
     rd = RUNS_DIR / f"dry-{stamp(now())}"
-    log = RunLog(rd, now, secrets.all_values(), header=f"Dry run (console manager). Model: {brain.name}.")
+    profile = load_profile(args)
+    log = RunLog(rd, now, secrets.all_values(),
+                 header=f"Dry run (console manager). Model: {brain.name}.{profile_header(profile)}")
     queue: asyncio.Queue = asyncio.Queue()
     synth = None
     if args.tts:
@@ -234,7 +253,7 @@ async def cmd_dry(args, secrets) -> int:
     else:
         async def synth(text):
             return "(not synthesised, use --tts)"
-    engine = Engine(brain, FactStore.for_task(now()), now=now)
+    engine = Engine(brain, FactStore.for_task(now()), now=now, profile=profile)
     timers = AsyncTimers(queue)
     runner = Runner(engine, ConsoleTransport(now), ConsoleOwner(), log, timers, synthesize=synth, mirror=False)
     print(DRY_HELP, flush=True)
@@ -327,13 +346,15 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
         return 2
     now = OffsetClock(clock.parse_now(args.now) if args.now else None)
     timings = config.Timings()
+    profile = load_profile(args)  # a bad profile is refused before Telegram is touched
     with SessionLock(STATE_DIR / "session.lock"):
         rd = RUNS_DIR / f"{args.mode}-{stamp(now())}"
         queue: asyncio.Queue = asyncio.Queue()
         voice = Voice(secrets.get("GROQ_API_KEY"), rd / "raw")
         brain = make_brain(args.llm or "groq", secrets)
         log = RunLog(rd, now, secrets.all_values(),
-                     header=f"Mode {args.mode}, manager @{peer}, model {brain.name}.", echo=print)
+                     header=f"Mode {args.mode}, manager @{peer}, model {brain.name}.{profile_header(profile)}",
+                     echo=print)
         owner = OwnerBot(secrets.get("OWNER_BOT_TOKEN"), int(secrets.get("OWNER_CHAT_ID")), queue)
         transport = TelegramTransport(session_arg(secrets.get("TG_SESSION")), int(secrets.get("TG_API_ID")),
                                       secrets.get("TG_API_HASH"), peer, queue, rd / "raw", voice.transcribe,
@@ -346,11 +367,12 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
             resolved = await transport.start()
             if norm_username(resolved) != peer:
                 raise SafetyError(f"{peer!r} resolved to {resolved!r}; refusing")
-            engine = Engine(brain, FactStore.for_task(now()), now=now, timings=timings)
+            engine = Engine(brain, FactStore.for_task(now()), now=now, timings=timings, profile=profile)
             runner = Runner(engine, transport, owner, log, timers, synthesize=voice.synthesize)
             owner.on_stop = runner.stop_now
             owner.on_note = log.record_note
-            await owner.send(texts.t("start", mode=args.mode, peer=peer))
+            start = texts.t("start", mode=args.mode, peer=peer)
+            await owner.send(f"{start}\n{profile.owner_text()}" if profile else start)
             started = True
             poller = asyncio.get_running_loop().create_task(owner.poll_forever())
             await queue.put(Event("opening"))
@@ -414,6 +436,8 @@ def main(argv=None) -> int:
         if args.mode == "test" and not args.now and clock.london_now().hour >= 17:
             print("warning: it is past 17:00 in London; pass --now 2026-11-19T08:00 so 'today at 17:00' makes sense",
                   file=sys.stderr)
+        if args.profile and args.mode in ("sim", "preflight"):
+            raise SafetyError("--profile is for dry, test and live; sim scenarios carry their own profile")
         if args.widgets:
             print("note: --widgets is not built in this version; the owner gets plain messages", file=sys.stderr)
         if args.mode == "sim":

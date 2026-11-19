@@ -64,6 +64,17 @@ def manager_asked(key: str, manager_texts: list[str]) -> bool:
     return rx is None or any(rx.search(t) for t in manager_texts)
 
 
+def manager_asked_now(key: str, said: list[str]) -> bool:
+    """The manager asks for the name or phone in this message ("the name of the restaurant" is not the name)."""
+    rx = ASKED_RE.get(key)
+    return bool(rx) and any(rx.search(ASKS_RESTAURANT_RE.sub(" ", t)) for t in said)
+
+
+def time_sure(hhmm: str, texts_: list[str]) -> bool:
+    """The time stands in the texts in one reading only ("18:30", "6:30pm", "1830"), not "6:30", "half six" or "7"."""
+    return any(c == {hhmm} for t in texts_ for _, c in guard.find_times(t))
+
+
 def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, list[tuple[str, str]], bool]:
     """The question for the owner in OWNER_LANG, inline buttons (label, value), and whether to offer a contact button."""
     said = texts.t("manager_said", text=manager_last.strip()[:300]) if manager_last.strip() else ""

@@ -40,6 +40,7 @@ LET_ME_KNOW_RE = re.compile(r"(?:^|[,;]?\s+-?\s*)(?:and\s+)?(?:please\s+)?(?:do\
 OWNER_FIELD_GUARD = "guard: owner-held field asked from the manager, template used"
 FIELD_WORDS = {"guest_name": "name", "phone": "contact number", "email": "email"}
 DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
+CHECKING_RE = re.compile(r"\b(?:check\w*|get back|come back|be back|moment|confirm with)\b", re.I)
 PLEASANTRY = ("closing", "greeting")
 WITHDRAWN = ("counter_offer", "fully_booked")  # intents that take an unrestated agreement back
 
@@ -48,8 +49,9 @@ MANAGER_LABEL = {"text": "MANAGER", "voice": "MANAGER (voice note, transcribed)"
 
 class Engine:
     def __init__(self, brain, facts: FactStore, now: Callable[[], datetime] | None = None,
-                 timings: Timings | None = None, voice_restatement: bool = True):
+                 timings: Timings | None = None, voice_restatement: bool = True, profile=None):
         self.brain = brain
+        self.profile = profile               # agent/profile.py, or None: everything is asked as before
         self.facts = facts
         self.now = now or (lambda: clock.london_now())
         self.t = timings or Timings()
@@ -69,6 +71,7 @@ class Engine:
         self.batch: set[str] = set()         # fields one manager message asked the owner for: they go back together
         self.held_answers: list[str] = []    # answered fields of the batch waiting for the rest
         self.took_time = False               # this turn the owner took the time the manager offered
+        self.from_profile: list[str] = []    # fields the profile gave this turn
         self.restated_sig: tuple | None = None
         self.before_restate: tuple = (None, NEW, False)  # restated_sig, phase, closed before the last restatement
         self.n_restated = 0
@@ -186,6 +189,15 @@ class Engine:
             event += (" Your last message asked whether the table is all confirmed: a yes to it is the manager's "
                       "agreement.")
         said = None if ev.kind == "manager_edit" else [m.text or "" for m in msgs]
+        if said and self.profile:
+            given = [k for k in DETAIL_KEYS if self.profile.get(k) and not self.facts.get(k)
+                     and policy.manager_asked_now(k, said)]
+            for k in given:
+                self.facts.set(k, self.profile.get(k), "owner", self.turn)
+            if given:
+                self.from_profile = self.relay = given
+                event += (f" The manager asks for the {' and '.join(FIELD_WORDS[k] for k in given)}: it is in KNOWN "
+                          f"FACTS, from {self.who}. Give it now; there is nothing to check.")
         return acts + self._respond(event, self.last_voice, said)
 
     def _owner(self, ev: Event) -> list:
@@ -409,7 +421,7 @@ class Engine:
         self.brain_down_sent = False
         acts += self._apply(d, event, voice, said)
         # used: a retry after a model failure still has them, the next turn does not
-        self.answered, self.relay, self.took_time = None, [], False
+        self.answered, self.relay, self.took_time, self.from_profile = None, [], False, []
         return acts
 
     def _apply(self, d: Decision, event: str, voice: bool, said: list[str] | None = None) -> list:
@@ -426,12 +438,28 @@ class Engine:
                 notes.append(f"{k}={v} (from the manager)")
         notes += [f"rejected {r}" for r in rejected]
 
+        if self.from_profile:
+            notes.append(f"{', '.join(self.from_profile)} from the owner's profile, given before the start")
+        offered = f.get("offered_time")
+        window_took = False
+        if (self.profile and self.profile.window and said is not None and offered and offered != f.get("time")
+                and "alternative_time" not in self.pending):
+            if self.profile.inside(offered) and policy.time_sure(offered, self.manager_texts[-1:]):
+                # the owner said before the start that this time works: no question, the manager hears it works
+                f.set("time", offered, "owner", self.turn)
+                f.confirm("time")
+                f.drop("offered_time")
+                window_took = self.took_time = True
+                notes.append(f"manager offered {offered}: inside the owner's window {self.profile.window}, taken")
+            else:
+                why_not = "outside the owner's window" if not self.profile.inside(offered) else "the time is not sure"
+                notes.append(f"manager offered {offered}: {why_not} {self.profile.window}, asking the owner")
         offered = f.get("offered_time")
         time_open = bool(offered and offered != f.get("time"))
         needs = []
         for k in d.needs_owner:
             k = policy.norm_key(k)
-            if k in needs:
+            if k in needs or (k == "alternative_time" and window_took):
                 continue
             if not policy.manager_asked(k, self.manager_texts):
                 notes.append(f"not asking the owner for {k}: the manager did not ask for it")
@@ -460,6 +488,8 @@ class Engine:
             # "Oh sorry, 17:00 has just gone. I can do 18:00?" before the restatement: the yes no longer stands
             self.agreed = agreed_now = False
             notes.append("agreement taken back: the manager offers another time or has no table")
+        if window_took:
+            agreed_now = True  # the manager offered the time and the owner's window takes it
         if agreed_now:
             self.agreed = True
             for k in ("time", "date", "party_size"):
@@ -496,6 +526,8 @@ class Engine:
             return acts
 
         reply = self._with_detail(d.reply.strip()) if d.action not in ("wait", "end") else d.reply.strip()
+        if self.from_profile and CHECKING_RE.search(d.reply):
+            reply = ""  # "let me check those details": the profile has them, the detail line goes instead
         if hold_restatement:
             acts += self._say(reply or (HOLD if new_keys else STILL_CHECKING), event,
                               f"holding line; the restatement goes once {', '.join(waiting)} is back", fallback=HOLD,
@@ -514,16 +546,18 @@ class Engine:
                 return acts
             if "restaurant_name" in restate.missing(f):
                 lead = reply or self._detail_line()
-                if (said is None and self.answered == "alternative_time" and f.source("time") == "owner"
-                        and f.get("time") not in (reply or "")):
+                if window_took or (said is None and self.answered == "alternative_time" and f.source("time") == "owner"
+                                   and f.get("time") not in (reply or "")):
                     # the owner took the other time: the manager hears it works, not only the restaurant question
                     took = f"Thank you, {f.get('time')} works for us. {ASK_RESTAURANT_ALSO}"
                     acts += self._say(took, event, "owner accepted the other time; restaurant name unknown, asking "
                                       "before the restatement", fallback=took, voice=voice)
-                elif lead and said is None and not policy.asks_restaurant(lead) and not self.asked_restaurant:
+                elif lead and (said is None or self.from_profile) and not policy.asks_restaurant(lead) \
+                        and not self.asked_restaurant:
                     # the owner's answer (a name, a phone) goes to the manager together with the question
+                    source = "from the owner's profile" if self.from_profile else "owner answered"
                     acts += self._say(f"{lead} {ASK_RESTAURANT_ALSO}", event,
-                                      "owner answered; restaurant name unknown, asking before the restatement",
+                                      f"{source}; restaurant name unknown, asking before the restatement",
                                       fallback=restate.ASK_RESTAURANT, voice=voice)
                 elif reply and policy.asks_restaurant(reply):
                     acts += self._say(reply, event, "agreed; restaurant name unknown, asking before the restatement",
@@ -537,7 +571,8 @@ class Engine:
                 self.asked_restaurant = True
                 return acts
 
-        if (said is None and self.answered in DETAIL_KEYS and not self.agreed and not new_keys and not time_open
+        if ((said is None and self.answered in DETAIL_KEYS or self.from_profile) and not self.agreed and not new_keys
+                and not time_open
                 and not any(k in self.pending for k in DETAIL_KEYS + ("alternative_time",))):
             # the agreement is not recorded (the model may read "Yes, 17:00 is fine. What name?" as a question only):
             # the name or phone goes with a confirm question, and a plain yes to it is the agreement
@@ -554,6 +589,10 @@ class Engine:
             self.closed = self.closed or self.n_out > n_before
             return acts
         if d.action in ("wait", "end") or not reply:
+            if self.from_profile and not new_keys:
+                line = self._detail_line()
+                return acts + self._say(line, event, "the manager asked; from the owner's profile", fallback=line,
+                                        voice=voice)
             if new_keys:
                 acts += self._say(HOLD, event, "holding line while the owner is asked", fallback=HOLD,
                                   voice=voice)
@@ -680,7 +719,8 @@ class Engine:
     def _detail_line(self, keys: list[str] | None = None) -> str | None:
         """The names and phones the owner just gave, for a turn where the model wrote no reply."""
         parts = self._detail_parts(self.relay if keys is None else keys)
-        return f"Thank you for waiting - {' and '.join(parts)}." if parts else None
+        lead = "Of course" if self.from_profile else "Thank you for waiting"
+        return f"{lead} - {' and '.join(parts)}." if parts else None
 
     def _with_detail(self, reply: str) -> str:
         """A reply on the owner's answer that leaves out the name or phone gets the detail line in front."""

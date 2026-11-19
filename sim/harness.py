@@ -13,7 +13,8 @@ from agent.brain import FakeBrain
 from agent.engine import Engine
 from agent.events import Event, Log, Msg, NotifyOwner, SendVoice, manager_event
 from agent.facts import FactStore
-from agent.runlog import RunLog
+from agent.profile import from_dict
+from agent.runlog import RunLog, mask_phone
 from agent.runner import Runner, VirtualClock, VirtualTimers, voice_msg
 from sim.scenarios import Scenario, Step
 
@@ -135,12 +136,18 @@ def check(step: Step, res: StepResult, scripted: bool = True) -> list[str]:
 
 async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], None] = print,
                     scripted: bool = True) -> SimResult:
+    out = echo
+    echo = lambda s: out(mask_phone(s))  # noqa: E731 - the phone is masked on stdout as in the logs
     vclock = VirtualClock(clock.parse_now(scn.now))
     facts = FactStore.for_task(vclock())
-    engine = Engine(brain, facts, now=vclock)
+    profile = from_dict(scn.profile) if scn.profile else None
+    engine = Engine(brain, facts, now=vclock, profile=profile)
     transport = SimTransport(vclock, echo)
     owner = SimOwner(vclock, echo)
-    log = RunLog(run_dir, vclock, header=f"Sim scenario `{scn.name}`: {scn.title}. Model: {getattr(brain, 'name', '?')}.")
+    header = f"Sim scenario `{scn.name}`: {scn.title}. Model: {getattr(brain, 'name', '?')}."
+    if profile:
+        header += f" Owner profile: {profile.summary()}."
+    log = RunLog(run_dir, vclock, header=header)
     timers = VirtualTimers(vclock)
     runner = Runner(engine, transport, owner, log, timers, synthesize=fake_tts)
     echo(f"== {scn.name}: {scn.title}")
