@@ -31,6 +31,9 @@ CLOSING = "Thank you very much, have a lovely day."
 ASK_RESTAURANT_ALSO = "Could I also take the restaurant's name for my note?"
 CONFIRM_Q = "Is the table for {people} at {time} today all confirmed, then?"
 CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
+# "Please let me know if that works." in front of the confirm question is a second question: cut it
+LET_ME_KNOW_RE = re.compile(r"(?:^|[,;]?\s+-?\s*)(?:and\s+)?(?:please\s+)?(?:do\s+)?let me know if that(?:'s| is)? "
+                            r"(?:works?|suits?|okay|ok|all right|alright|fine)(?: for you| with you)?\s*[.!]*\s*$", re.I)
 DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
 PLEASANTRY = ("closing", "greeting")
 WITHDRAWN = ("counter_offer", "fully_booked")  # intents that take an unrestated agreement back
@@ -630,25 +633,24 @@ class Engine:
         return f"{detail} {reply}"
 
     def _ask_confirm(self, reply: str, voice: bool) -> list:
+        """The model's reply (the name or phone in it) plus one question: is it all confirmed. The restaurant's name
+        is asked, or "at your restaurant" used, on the way to the restatement."""
         f = self.facts
         detail = self._detail_line() or ""
-        lead = reply or detail
+        lead = LET_ME_KNOW_RE.sub("", reply or "").strip()
+        if lead and lead != (reply or "").strip() and lead[-1] not in ".!?":
+            lead += "."
+        lead = lead or detail
         n = int(f.get("party_size"))
-        q = "" if CONFIRM_RE.search(lead) else CONFIRM_Q.format(people=restate.NUMBER_WORDS.get(n, str(n)),
-                                                                  time=f.get("time"))
-        ask_rest = ("restaurant_name" in restate.missing(f) and not self.asked_restaurant
-                    and not policy.asks_restaurant(lead))
-        tail = [q or CONFIRM_Q.format(people=restate.NUMBER_WORDS.get(n, str(n)), time=f.get("time"))]
-        if ask_rest:
-            tail.append(ASK_RESTAURANT_ALSO)
-        text = " ".join(x for x in [lead, q] + tail[1:] if x)
+        q = CONFIRM_Q.format(people=restate.NUMBER_WORDS.get(n, str(n)), time=f.get("time"))
+        text = lead if CONFIRM_RE.search(lead) else " ".join(x for x in (lead, q) if x)
         n_before = self.n_out
         # no model rewrite here: a blocked draft goes as the template, so the confirm question always goes out
         acts = self._say(text, "", "owner answered; the manager's agreement is not recorded yet, the detail goes with "
-                         "a confirm question", fallback=" ".join(x for x in [detail] + tail if x), voice=voice)
+                         "a confirm question", fallback=" ".join(x for x in (detail, q) if x), voice=voice)
         if self.n_out > n_before:
             self.confirm_asked = True
-            self.asked_restaurant = self.asked_restaurant or ask_rest or policy.asks_restaurant(lead)
+            self.asked_restaurant = self.asked_restaurant or policy.asks_restaurant(lead)
         return acts
 
     def _ask_help(self) -> list:

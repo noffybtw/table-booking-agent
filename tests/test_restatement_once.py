@@ -100,9 +100,12 @@ def test_name_with_no_recorded_agreement_goes_with_a_confirm_question_and_ok_res
     e.brain.push(D("Thank you for waiting - it's under Kostyk.", intent="asks_info", guest_name="Kostyk"))
     out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
     assert len(out) == 1 and "Kostyk" in out[0] and "Is the table for two at 17:00 today all confirmed, then?" in out[0]
-    assert "restaurant's name" in out[0] and e.n_restated == 0
+    assert out[0].endswith("all confirmed, then?") and "restaurant" not in out[0] and e.n_restated == 0
     e.brain.push(D("Thank you!", intent="closing"))  # the model still does not say "agreed"
     acts = e.handle(Event("manager_message", text="ok"))
+    assert e.agreed and restatements(acts) == [] and texts(acts) == [restate.ASK_RESTAURANT]
+    e.brain.push(D("Of course, thank you!", intent="question"))
+    acts = e.handle(Event("manager_message", text="It's our place, you wrote to us!"))
     said = restatements(acts)
     assert len(said) == 1 and "under the name Kostyk" in said[0] and "at your restaurant" in said[0]
     assert e.n_restated == 1 and texts(acts) == said
@@ -158,7 +161,7 @@ def test_a_stalling_answer_to_the_confirm_question_is_not_a_yes():
 
 def test_ok_let_me_check_after_the_confirm_question_sends_no_restatement():
     e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
-    e.handle(Event("manager_message", text="Hello. What name is it under?"))
+    e.handle(Event("manager_message", text=f"Hello, {REST} here. What name is it under?"))
     e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk"))
     e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
     e.brain.push(D("Of course, thank you.", intent="question"))
@@ -273,3 +276,24 @@ def test_the_retry_after_a_model_failure_keeps_the_owner_answer():
     out = texts(e.handle(Event("timer", text="brain_retry", gen=e.gen["retry"])))
     assert len(out) == 1 and "Kostyk" in out[0] and out[0].endswith("all confirmed, then?"), out
     assert e.answered is None and e.confirm_asked
+
+
+def test_the_confirm_message_is_the_reply_plus_one_question():
+    e = opened(D("Let me check both.", action="ask_owner", intent="asks_info", needs_owner=["guest_name", "phone"]))
+    e.handle(Event("manager_message", text="Hello. What name and contact number is it under?"))
+    e.brain.push(D("Thank you, the name is Yaroslav.", intent="asks_info", guest_name="Yaroslav"))
+    e.handle(Event("owner_answer", key="guest_name", text="Yaroslav"))
+    e.brain.push(D("The booking can be under the name Yaroslav, and the contact number is +44 7700 900123. "
+                   "Please let me know if that works.", intent="asks_info"))
+    out = texts(e.handle(Event("owner_answer", key="phone", text="+44 7700 900123")))
+    assert out == ["The booking can be under the name Yaroslav, and the contact number is +44 7700 900123. "
+                   "Is the table for two at 17:00 today all confirmed, then?"]
+    assert e.confirm_asked and not e.asked_restaurant
+
+
+def test_let_me_know_cut_keeps_the_rest_of_the_sentence():
+    e = opened(D("Let me just check the name.", **ASK_NAME))
+    e.handle(Event("manager_message", text="Hello. What name is it under?"))
+    e.brain.push(D("It's under Kostyk, let me know if that suits.", intent="asks_info"))
+    out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
+    assert out == ["It's under Kostyk. Is the table for two at 17:00 today all confirmed, then?"]
