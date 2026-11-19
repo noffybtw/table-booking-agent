@@ -130,7 +130,8 @@ def test_stray_owner_message_gets_the_status_and_no_model_turn():
     acts = e.handle(Event("owner_answer", text="ну як там?"))
     assert sends(acts) == [] and not e.brain.queue and len(e.brain.calls) == 1  # only the opening called the model
     note = [a.text for a in acts if isinstance(a, NotifyOwner)]
-    assert len(note) == 1 and "STATE: phase open" in note[0]
+    assert len(note) == 1 and "Етап: розмова з менеджером. Менеджер погодився: ні. Чекаю від тебе: нічого." in note[0]
+    assert "STATE" not in note[0] and "phase" not in note[0]
     assert e.facts.get("owner_note") == "ну як там?"
     # the note is a known fact on the next model turn
     e.brain.push(D("Thank you, could I book a table for two today at 17:00?"))
@@ -145,3 +146,24 @@ def test_a_chase_while_the_owner_is_asked_never_gets_silence():
     e.brain.push(D(action="wait", intent="question"))
     acts = e.handle(Event("manager_message", text="Any luck?"))
     assert sends(acts) == [STILL_CHECKING]
+
+
+def test_a_short_stray_owner_text_is_not_kept_as_a_note():
+    e = opened()
+    for short_text in ("дякую", "ок", "ну що?"):
+        acts = e.handle(Event("owner_answer", text=short_text))
+        assert sends(acts) == [] and e.facts.get("owner_note") is None
+        assert not any(short_text in line for line in e.transcript)
+        note = [a.text for a in acts if isinstance(a, NotifyOwner)]
+        assert len(note) == 1 and note[0].startswith("Зараз питань немає") and "нотатку" not in note[0]
+
+
+def test_status_is_in_the_console_language(monkeypatch):
+    for lang, want in (("uk", "Етап: розмова з менеджером. Менеджер погодився: ні. Чекаю від тебе: ім'я для броні."),
+                       ("ru", "Этап: разговор с менеджером. Менеджер согласился: нет. Жду от тебя: имя для брони.")):
+        monkeypatch.setenv("OWNER_LANG", lang)
+        e = opened()
+        asked(e, "What name shall I put it under?", "guest_name")
+        status = [a.text for a in e.handle(Event("owner_command", text="status")) if isinstance(a, NotifyOwner)]
+        assert len(status) == 1 and status[0].startswith(want), status
+        assert "STATE" not in status[0] and "pending" not in status[0]

@@ -104,7 +104,11 @@ class Engine:
                 f"closing reply sent: {'yes' if self.closed else 'no'}.")
 
     def status_text(self) -> str:
-        return texts.t("status", state=self.state_text(), n_in=self.n_in, n_out=self.n_out)
+        """The same state for the owner, in OWNER_LANG."""
+        yes_no = {True: texts.t("yes"), False: texts.t("no")}
+        pending = ", ".join(policy.key_name(k) for k in self.pending) or texts.t("nothing")
+        return texts.t("status", phase=texts.t(f"phase.{self.phase}"), agreed=yes_no[self.agreed], pending=pending,
+                       restated=yes_no[self.restated_sig is not None], n_in=self.n_in, n_out=self.n_out)
 
     # ---------- events ----------
 
@@ -185,12 +189,16 @@ class Engine:
                                              "result": "not a reply to a question, several are open; asked which"}),
                         NotifyOwner(policy.which_question(list(self.pending)))]
         else:
-            # nothing is asked: "ну як там?" must not start a message to the manager. The owner gets the status,
-            # the note waits in the facts for the next model turn.
+            # nothing is asked: "ну як там?" must not start a message to the manager. The owner gets the status;
+            # a note of 3 words or more waits in the facts for the next model turn, "дякую" or "ок" does not.
+            if len(text.split()) < 3:
+                return [Log("owner_answer", {"key": "note", "text": text,
+                                             "summary": "owner message with no open question, under 3 words: not "
+                                                        "kept, status sent to the owner"}),
+                        NotifyOwner(texts.t("note_skipped", status=self.status_text()))]
             self.facts.set("owner_note", text, "owner", self.turn)
             self.transcript.append(f"OWNER (private, the manager cannot see this): {text}")
-            if text:
-                self.chat_texts.append(text)
+            self.chat_texts.append(text)
             return [Log("owner_answer", {"key": "note", "text": text,
                                          "summary": "owner note with no open question: kept for the next model "
                                                     "turn, status sent to the owner"}),
