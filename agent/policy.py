@@ -138,7 +138,7 @@ def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, 
         return q, [(texts.t("btn.accept", offered=offered), "accept"), only], False
     if key == "reply_help":
         return texts.t("q.reply_help") + said, [], False
-    base = texts.t(f"q.{key}") if key in QUESTION_KEYS else texts.t("q.other", key=key.replace("_", " "))
+    base = texts.t(f"q.{key}") if key in QUESTION_KEYS else texts.t("q.other", what=key.replace("_", " "))
     return f"{base}{said}", [], key == "phone"
 
 
