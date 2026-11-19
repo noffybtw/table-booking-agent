@@ -130,3 +130,12 @@ def test_a_run_past_until_refuses_before_the_opening(capsys):
     assert "past --until" in capsys.readouterr().err
     with pytest.raises(SafetyError):
         run.parse_until("5pm")
+
+
+def test_a_run_before_08_00_london_refuses(capsys):
+    with pytest.raises(SafetyError, match="it is 07:59 in London, before 08:00; nothing was sent"):
+        run.check_start(clock.parse_now("2026-11-19T07:59"))
+    run.check_start(clock.parse_now("2026-11-19T08:00"))
+    # main refuses before anything is connected: no session, no bot, no opening
+    assert run.main(["--mode", "test", "--now", "2026-11-19T07:59"]) == 2
+    assert "before 08:00; nothing was sent" in capsys.readouterr().err

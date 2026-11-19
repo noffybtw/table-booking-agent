@@ -131,6 +131,12 @@ def check_until(until: str, now: datetime) -> None:
         raise SafetyError(f"it is {clock.hhmm(now)} in London, past --until {until}; nothing was sent")
 
 
+def check_start(now: datetime) -> None:
+    """No opening to a restaurant before its working day."""
+    if clock.london_now(now).hour < 8:
+        raise SafetyError(f"it is {clock.hhmm(now)} in London, before 08:00; nothing was sent")
+
+
 # ---------- sim ----------
 
 def cmd_sim(args, secrets) -> int:
@@ -432,6 +438,7 @@ def main(argv=None) -> int:
         peer = args.peer or (sorted(config.ALLOWED_TEST_PEERS)[0] if args.mode == "test" else None)
         peer = check_safety(args.mode, peer, args.live_confirm, now, now_overridden=bool(args.now))
         if args.mode in ("test", "live"):
+            check_start(now or clock.london_now())
             check_until(args.until, now or clock.london_now())
         if args.mode == "test" and not args.now and clock.london_now().hour >= 17:
             print("warning: it is past 17:00 in London; pass --now 2026-11-19T08:00 so 'today at 17:00' makes sense",
