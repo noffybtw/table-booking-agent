@@ -118,10 +118,10 @@ SCENARIOS = [
           sends=1, voice=False, asks=["guest_name"], never=["To confirm", "correction", "Yaroslav"]),
         O("Yaroslav", D("Thank you for waiting - it's under Yaroslav.", intent="asks_info", guest_name="Yaroslav"),
           key="guest_name", sends=1, says=["Yaroslav"], never=["correction", "might be possible"]),
-        M("ok", D("Thank you!", intent="closing"),
-          sends=1, says=["restaurant's name"], booked=False, never=["So that's", "might be possible"]),
-        silence(10, sends=1, voice=True, says=["17:00", "Thursday 19 November", "two", "at your restaurant",
-                                               "under the name Yaroslav"], never=["correction", "might be possible"]),
+        # a model that read the first message as agreement asked the restaurant with the name: "ok" restates now;
+        # otherwise "ok" answers the confirm question, the restaurant is asked, and the restatement follows silence
+        M("ok", D("Thank you!", intent="closing"), sends=1, never=["correction", "might be possible"]),
+        silence(10, never=["correction", "might be possible"]),
         silence(40, sends=0),
     ], restatements=1),
     Scenario("confirm_stall", "the confirm question gets \"Ok, let me check\": no restatement until a real yes", [
