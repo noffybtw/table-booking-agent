@@ -16,7 +16,7 @@ Python 3.12, `pip install -r requirements.txt` (the versions it was tested with)
 | `OWNER_LANG` | language of the bot messages to me: `uk` (default) or `ru`; my answers are understood in Ukrainian, Russian and English either way |
 
 ```
-python run.py --mode sim --scenario all            # 21 scripted managers, offline, scripted model
+python run.py --mode sim --scenario all            # 23 scripted managers, offline, scripted model
 python run.py --mode sim --scenario happy --llm groq   # the same scripts against the real model
 python run.py --mode dry                           # you type as the manager, the real model answers, nothing is sent
 python run.py --mode test --now 2026-11-19T08:00   # Telegram, @noffybtw (my main account) plays the manager
