@@ -28,7 +28,7 @@ python -m agent.render runs/<run-id>               # transcript PNG of any run
 - `dry` reads lines from the console: a plain line is a manager message; `voice: ...`, `edit: ...`, `media: a sticker`, `owner: ...`, `owner phone: ...`, `/stop` cover the rest. `--tts` writes real voice files to `runs/<id>/raw/`.
 - `test` talks only to usernames in `ALLOWED_TEST_PEERS` (`agent/config.py`). `--now` moves "today" so an evening test still books a 17:00 that has not passed.
 - `live` refuses unless the username is typed again in `--live-confirm`, the clock is real, and it is not later than 16:30 in London.
-- Both Telegram modes take a lock in `state/`, so two processes never share the session. They stop at `--until` (11:30 London by default) or 20 minutes after the restatement if nothing else happens.
+- Both Telegram modes take a lock in `state/`, so two processes never share the session. They do not start after `--until` (17:00 London by default) and stop there if the booking is not confirmed; after the restatement they stay until 60 minutes (`--linger`) pass with no message from the manager or me.
 
 Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.jsonl` and, for Telegram runs, `transcript.png`.
 

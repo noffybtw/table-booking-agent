@@ -37,8 +37,10 @@ def parse_args(argv=None):
     p.add_argument("--now", help="clock override, ISO (London if no offset), e.g. 2026-11-19T08:00; not in live")
     p.add_argument("--peer", help=f"test: manager username (default {sorted(config.ALLOWED_TEST_PEERS)[0]})")
     p.add_argument("--live-confirm", help=f"live: type {config.LIVE_MANAGER} again")
-    p.add_argument("--until", default="11:30", help="test/live: stop at this London time if not done (HH:MM)")
-    p.add_argument("--linger", type=float, default=20, help="test/live: minutes to stay after the restatement")
+    p.add_argument("--until", default="17:00", help="test/live: stop at this London time if not done (HH:MM); "
+                                                     "a run does not start after it")
+    p.add_argument("--linger", type=float, default=60,
+                   help="test/live: minutes to stay after the restatement, counted from the last manager or owner event")
     p.add_argument("--tts", action="store_true", help="dry: really synthesise voice notes into runs/<id>/raw/")
     p.add_argument("--widgets", action="store_true", help="owner booking card (optional, see README)")
     p.add_argument("--quiet", action="store_true", help="sim: do not print transcripts")
@@ -79,6 +81,51 @@ async def feed_safely(runner, log, owner, ev) -> None:
         error = f"{type(e).__name__}: {str(e)[:160]}"
         log.record_note(f"error in the {ev.kind} turn ({error}), the run goes on")
         await runner._safe(owner.notify(f"Ошибка в ходе {ev.kind}: {error}. Агент продолжает."))
+
+
+class RunWindow:
+    """When a Telegram run ends: at --until (London) without a confirmed booking, or --linger minutes after the last
+    manager or owner event once the restatement is out."""
+
+    def __init__(self, until: str, linger_min: float):
+        self.until = parse_until(until)
+        self.linger = linger_min * 60
+        self.last: datetime | None = None
+
+    def seen(self, ev, t: datetime) -> None:
+        if ev is not None and ev.kind.startswith(("manager", "owner")):
+            self.last = t
+
+    def end_reason(self, t: datetime, confirmed: bool) -> str | None:
+        if confirmed:
+            self.last = self.last or t
+            if (t - self.last).total_seconds() > self.linger:
+                return "linger"
+            return None
+        if past(t, self.until):
+            return "until"
+        return None
+
+
+def parse_until(value: str) -> tuple[int, int]:
+    try:
+        hh, mm = (int(x) for x in value.split(":"))
+    except ValueError:
+        raise SafetyError(f"--until {value!r} is not HH:MM") from None
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        raise SafetyError(f"--until {value!r} is not HH:MM")
+    return hh, mm
+
+
+def past(t: datetime, until: tuple[int, int]) -> bool:
+    t = clock.london_now(t)
+    return (t.hour, t.minute) >= until
+
+
+def check_until(until: str, now: datetime) -> None:
+    """A run that would stop at its first loop pass must not send the opening."""
+    if past(now, parse_until(until)):
+        raise SafetyError(f"it is {clock.hhmm(now)} in London, past --until {until}; nothing was sent")
 
 
 # ---------- sim ----------
@@ -270,8 +317,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
             await owner.send(f"▶️ Старт: режим {args.mode}, менеджер @{peer}. Команды: /pause /resume /stop /status")
             poller = asyncio.get_running_loop().create_task(owner.poll())
             await queue.put(Event("opening"))
-            hh, mm = (int(x) for x in args.until.split(":"))
-            confirmed_at = None
+            window = RunWindow(args.until, args.linger)
             while not runner.stopped:
                 try:
                     ev = await asyncio.wait_for(queue.get(), timeout=30)
@@ -280,12 +326,12 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                 if ev is not None:
                     await feed_safely(runner, log, owner, ev)
                 t = now()
-                if engine.phase == CONFIRMED and confirmed_at is None:
-                    confirmed_at = t
-                if confirmed_at and (t - confirmed_at).total_seconds() > args.linger * 60:
-                    log.record_note("restatement sent and no news for the linger time, ending the run")
+                window.seen(ev, t)
+                reason = window.end_reason(t, engine.phase == CONFIRMED)
+                if reason == "linger":
+                    log.record_note(f"restatement sent and no message for {args.linger:.0f} minutes, ending the run")
                     break
-                if (t.hour, t.minute) >= (hh, mm) and engine.phase != CONFIRMED:
+                if reason == "until":
                     log.record_note(f"{args.until} London reached without a confirmed booking, ending the run")
                     await runner._safe(owner.notify(f"Время вышло ({args.until} Лондон), бронь не подтверждена."))
                     break
@@ -313,6 +359,8 @@ def main(argv=None) -> int:
         now = clock.parse_now(args.now) if args.now else None
         peer = args.peer or (sorted(config.ALLOWED_TEST_PEERS)[0] if args.mode == "test" else None)
         peer = check_safety(args.mode, peer, args.live_confirm, now, now_overridden=bool(args.now))
+        if args.mode in ("test", "live"):
+            check_until(args.until, now or clock.london_now())
         if args.mode == "test" and not args.now and clock.london_now().hour >= 17:
             print("warning: it is past 17:00 in London; pass --now 2026-11-19T08:00 so 'today at 17:00' makes sense",
                   file=sys.stderr)

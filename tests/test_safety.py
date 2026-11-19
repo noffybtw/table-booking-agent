@@ -98,3 +98,35 @@ def test_dry_line_parsing():
     assert ev.kind == "owner_answer" and ev.key == "phone"
     assert run.dry_event("owner: only", "").value == "only"
     assert run.dry_event("/stop", "").kind == "owner_command"
+
+
+def test_run_window_defaults_and_linger_resets_on_every_message():
+    from agent.events import Event
+    args = run.parse_args(["--mode", "test"])
+    assert args.until == "17:00" and args.linger == 60
+    w = run.RunWindow(args.until, args.linger)
+    t0 = clock.parse_now("2026-11-19T09:00")
+    assert w.end_reason(t0, confirmed=False) is None
+    assert w.end_reason(t0, confirmed=True) is None                       # the restatement just went out
+    later = t0 + timedelta(minutes=50)
+    w.seen(Event("manager_message", text="Sorry, can we make it 17:30?"), later)
+    assert w.end_reason(later + timedelta(minutes=55), confirmed=True) is None   # counted from the last message
+    w.seen(Event("timer", text="silence"), later + timedelta(minutes=58))        # a timer is not news
+    assert w.end_reason(later + timedelta(minutes=61), confirmed=True) == "linger"
+
+
+def test_run_window_until_in_london():
+    w = run.RunWindow("17:00", 60)
+    assert w.end_reason(clock.parse_now("2026-11-19T13:00"), confirmed=False) is None
+    assert w.end_reason(clock.parse_now("2026-11-19T17:00"), confirmed=False) == "until"
+
+
+def test_a_run_past_until_refuses_before_the_opening(capsys):
+    with pytest.raises(SafetyError):
+        run.check_until("17:00", clock.parse_now("2026-11-19T17:05"))
+    run.check_until("17:00", clock.parse_now("2026-11-19T16:59"))
+    # main refuses before anything is connected: no session, no bot, no opening
+    assert run.main(["--mode", "test", "--now", "2026-11-19T17:30"]) == 2
+    assert "past --until" in capsys.readouterr().err
+    with pytest.raises(SafetyError):
+        run.parse_until("5pm")
