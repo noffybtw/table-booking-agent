@@ -118,8 +118,11 @@ class Voice:
             wav = self.dir / f"out-{n}-{i}.wav"
 
             def call(piece=piece):
-                return self.client.audio.speech.create(model=ORPHEUS_MODEL, voice=self.orpheus_voice, input=piece,
-                                                       response_format="wav")
+                c = self.client
+                if hasattr(c, "with_options"):  # no retry, a short wait: edge-tts is the retry, a 429 never holds the queue
+                    c = c.with_options(max_retries=0, timeout=15)
+                return c.audio.speech.create(model=ORPHEUS_MODEL, voice=self.orpheus_voice, input=piece,
+                                             response_format="wav")
             r = await asyncio.to_thread(call)
             wav.write_bytes(r.read())
             parts.append(wav)

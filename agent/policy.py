@@ -278,7 +278,8 @@ def with_the(texts: list[str], name: str) -> str:
     restatement reads "at the Ivy", not "at Ivy". The name is matched case-sensitively: "the rules" is not "Rules"."""
     if name.lower().startswith("the "):
         return name
-    pat = re.compile(r"\b([Tt]he)\s+(" + re.escape(name) + r")(?!\w)")
+    pat = re.compile(r"\b([Tt]he)\s+(" + re.escape(name) + r")(?!\w)"
+                     r"(?!\s+(?:[A-Z][a-z]|(?:team|staff|kitchen|bar|booking|reservations?|group|branch|dress)\b))")
     for t in reversed(texts):
         m = pat.search(t)
         if m:

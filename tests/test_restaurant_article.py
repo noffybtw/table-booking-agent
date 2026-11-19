@@ -34,3 +34,11 @@ def test_the_is_not_a_change_of_restaurant():
     assert not restate.is_correction(before, restate.signature(f))
     f.set("restaurant_name", "Apple", "manager", 3, confirmed=True)
     assert restate.is_correction(before, restate.signature(f))
+
+
+def test_no_the_when_the_name_describes_the_next_word():
+    texts = ["Thanks for messaging the Dishoom team, how can I help?", "Yes 17:00 is fine. We are Dishoom."]
+    assert policy.with_the(texts, "Dishoom") == "Dishoom"
+    assert policy.with_the(["Welcome to the Ivy Asia."], "Ivy") == "Ivy"
+    assert policy.with_the(["I'll let the Dishoom kitchen know"], "Dishoom") == "Dishoom"
+    assert policy.with_the(["see you at the Ivy"], "Ivy") == "the Ivy"
