@@ -68,6 +68,7 @@ class Engine:
         self.relay: list[str] = []           # the names and phones the reply of this turn must carry
         self.batch: set[str] = set()         # fields one manager message asked the owner for: they go back together
         self.held_answers: list[str] = []    # answered fields of the batch waiting for the rest
+        self.took_time = False               # this turn the owner took the time the manager offered
         self.restated_sig: tuple | None = None
         self.before_restate: tuple = (None, NEW, False)  # restated_sig, phase, closed before the last restatement
         self.n_restated = 0
@@ -236,6 +237,7 @@ class Engine:
             if self.facts.get("time") == offered:
                 # the manager offered it and the owner took it: the new time is agreed on both sides
                 self.facts.confirm("time")
+                self.took_time = True
                 summary = f"accepted {offered}"
             else:
                 self.declined_times.add(offered)  # only on "only" or a no: anything else was asked again above
@@ -405,7 +407,8 @@ class Engine:
         self.retry = None
         self.brain_down_sent = False
         acts += self._apply(d, event, voice, said)
-        self.answered, self.relay = None, []  # used: a retry after a model failure still has them, the next turn not
+        # used: a retry after a model failure still has them, the next turn does not
+        self.answered, self.relay, self.took_time = None, [], False
         return acts
 
     def _apply(self, d: Decision, event: str, voice: bool, said: list[str] | None = None) -> list:
@@ -438,6 +441,10 @@ class Engine:
             notes.append(f"manager offered {offered}: another time is the owner's call, asking")
 
         agreed_now = d.action == "final_restatement" or d.slots.manager_agreed
+        if agreed_now and said is None and not (self.agreed or self.took_time):
+            # an owner turn: the model's "agreed" stands only for the time the owner has just taken
+            agreed_now = False
+            notes.append("the model's agreement not taken: an owner turn, and the manager has not agreed")
         if (not agreed_now and self.confirm_asked and said is not None
                 and policy.manager_yes(" ".join(said), f.get("time"), f.get("guest_name"))):
             agreed_now = True
@@ -506,7 +513,8 @@ class Engine:
                 return acts
             if "restaurant_name" in restate.missing(f):
                 lead = reply or self._detail_line()
-                if said is None and self.answered == "alternative_time" and f.get("time") not in (reply or ""):
+                if (said is None and self.answered == "alternative_time" and f.source("time") == "owner"
+                        and f.get("time") not in (reply or "")):
                     # the owner took the other time: the manager hears it works, not only the restaurant question
                     took = f"Thank you, {f.get('time')} works for us. {ASK_RESTAURANT_ALSO}"
                     acts += self._say(took, event, "owner accepted the other time; restaurant name unknown, asking "

@@ -136,3 +136,22 @@ def test_accepting_the_other_time_tells_the_manager_it_works_when_the_restaurant
 def test_ten_and_eleven_are_read_as_written(manager, model_time, want):
     e, asked = offered(manager, model_time)
     assert e.facts.get("offered_time") == want and len(asked) == 1 and want in asked[0].question
+
+
+def test_only_the_booking_time_and_the_model_says_agreed_is_not_an_agreement():
+    from test_owner_answers import sends
+    e, _ = offered("Sorry, 17:00 is full. I can do 18:30", "18:30")
+    # R5: the model returns final_restatement with no text; the code line "17:00 works for us" must not follow
+    e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    out = sends(e.handle(Event("owner_answer", key="alternative_time", value="only")))
+    assert not e.agreed and e.n_restated == 0 and not e.asked_restaurant
+    assert not any("works for us" in t or "restaurant" in t for t in out), out
+
+
+def test_owner_takes_the_offer_and_the_model_says_agreed_still_restates():
+    from test_owner_answers import sends
+    e, _ = offered(f"Sorry, 17:00 is full. I can do 18:30 at {REST}.", "18:30")
+    e.facts.set("restaurant_name", REST, "manager", 1, confirmed=True)
+    e.brain.push(D("Thank you, 18:30 works for us.", action="final_restatement", intent="agreed", manager_agreed=True))
+    out = sends(e.handle(Event("owner_answer", key="alternative_time", value="accept")))
+    assert e.agreed and e.n_restated == 1 and "18:30" in out[0]
