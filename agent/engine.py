@@ -190,15 +190,6 @@ class Engine:
             event += (" Your last message asked whether the table is all confirmed: a yes to it is the manager's "
                       "agreement.")
         said = None if ev.kind == "manager_edit" else [m.text or "" for m in msgs]
-        if said and self.profile:
-            given = [k for k in DETAIL_KEYS if self.profile.get(k) and not self.facts.get(k)
-                     and policy.manager_asked_now(k, said)]
-            for k in given:
-                self.facts.set(k, self.profile.get(k), "owner", self.turn)
-            if given:
-                self.from_profile = self.relay = given
-                event += (f" The manager asks for the {' and '.join(FIELD_WORDS[k] for k in given)}: it is in KNOWN "
-                          f"FACTS, from {self.who}. Give it now; there is nothing to check.")
         return acts + self._respond(event, self.last_voice, said)
 
     def _owner(self, ev: Event) -> list:
@@ -420,6 +411,15 @@ class Engine:
             return acts
         self.retry = None
         self.brain_down_sent = False
+        if said and self.profile:
+            # a profile field goes only when the model wants it and the manager's sentence really asks for it
+            wanted = {policy.norm_key(k) for k in d.needs_owner}
+            given = [k for k in DETAIL_KEYS if k in wanted and self.profile.get(k) and not self.facts.get(k)
+                     and policy.manager_asked_now(k, said)]
+            for k in given:
+                self.facts.set(k, self.profile.get(k), "owner", self.turn)
+            if given:
+                self.from_profile = self.relay = given
         acts += self._apply(d, event, voice, said)
         # used: a retry after a model failure still has them, the next turn does not
         self.answered, self.relay, self.took_time, self.from_profile = None, [], False, []
@@ -461,6 +461,9 @@ class Engine:
         for k in d.needs_owner:
             k = policy.norm_key(k)
             if k in needs or (k == "alternative_time" and window_took):
+                continue
+            if self.profile and k in DETAIL_KEYS and self.profile.get(k) and not f.get(k):
+                notes.append(f"not giving or asking {k}: in the owner's profile, the manager did not ask for it")
                 continue
             if not policy.manager_asked(k, self.manager_texts):
                 notes.append(f"not asking the owner for {k}: the manager did not ask for it")

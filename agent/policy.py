@@ -64,10 +64,24 @@ def manager_asked(key: str, manager_texts: list[str]) -> bool:
     return rx is None or any(rx.search(t) for t in manager_texts)
 
 
+# a sentence that asks for something: a question, "please", "can I take", "could you give", "I'll need"
+REQUEST_RE = re.compile(r"\?|\bplease\b|\b(?:can|could|may) (?:I|we) (?:take|have|get|grab|put|ask)\b|"
+                        r"\b(?:can|could|would) you (?:give|send|share|tell|provide|leave)\b|\bunder what name\b|"
+                        r"\bcontact number\b|\b(?:I|we)(?:'ll| will|'d| would)? need\b", re.I)
+OWN_NAME_RE = re.compile(r"\b(?:my|our) name(?:'s|\s+is)\b", re.I)
+
+
 def manager_asked_now(key: str, said: list[str]) -> bool:
-    """The manager asks for the name or phone in this message ("the name of the restaurant" is not the name)."""
-    rx = ASKED_RE.get(key)
-    return bool(rx) and any(rx.search(ASKS_RESTAURANT_RE.sub(" ", t)) for t in said)
+    """The manager asks for the name or phone in this message: a sentence names the field and is a request.
+    "Hi, my name is Vlad.", "Table number 12 is free", "For what number of people?" do not ask."""
+    rx = FIELD_RE.get(key)
+    if key not in ("guest_name", "phone") or rx is None:
+        return False
+    for t in said:
+        for sent in re.split(r"(?<=[.!?])\s+", OWN_NAME_RE.sub(" ", ASKS_RESTAURANT_RE.sub(" ", t or ""))):
+            if rx.search(sent) and REQUEST_RE.search(sent):
+                return True
+    return False
 
 
 def time_sure(hhmm: str, texts_: list[str]) -> bool:

@@ -78,6 +78,37 @@ def test_name_only_from_the_profile_goes_with_the_confirm_question():
     assert e.facts.get("phone") is None  # not asked, not given
 
 
+@pytest.mark.parametrize("manager", ["Hi, my name is Vlad. Let me check 17:00 for you.",
+                                     "No problem, table number 12 is free at 17:00.", "Sure. For what number of people?",
+                                     "I'll contact the chef and come back."])
+def test_profile_field_not_given_when_the_manager_does_not_ask(manager):
+    e = with_profile(PROFILE, D("Thank you.", intent="question", needs_owner=["guest_name", "phone"]))
+    acts = e.handle(Event("manager_message", text=manager))
+    out = " ".join(sends(acts))
+    assert "Yaroslav" not in out and "900123" not in out and not [a for a in acts if isinstance(a, AskOwner)]
+    assert e.facts.get("guest_name") is None and e.facts.get("phone") is None
+
+
+@pytest.mark.parametrize("manager,keys", [
+    ("What name should I put it under?", ["guest_name"]), ("Could I take a contact number?", ["phone"]),
+    ("Name and phone number, please.", ["guest_name", "phone"]),
+    ("And a number in case we need to reach you?", ["phone"]),
+])
+def test_profile_field_given_when_the_manager_asks(manager, keys):
+    e = with_profile(PROFILE, D("Let me just check that.", action="ask_owner", intent="asks_info",
+                                needs_owner=["guest_name", "phone"]))
+    acts = e.handle(Event("manager_message", text=manager))
+    out = " ".join(sends(acts))
+    assert ("Yaroslav" in out) == ("guest_name" in keys) and ("+44 7700 900123" in out) == ("phone" in keys)
+    assert not [a for a in acts if isinstance(a, AskOwner)]
+
+
+def test_profile_field_not_given_when_the_model_does_not_want_it():
+    e = with_profile(PROFILE, D("Of course.", intent="question"))
+    out = " ".join(sends(e.handle(Event("manager_message", text="What name should I put it under?"))))
+    assert "Yaroslav" not in out and e.facts.get("guest_name") is None
+
+
 def test_restaurant_name_is_not_a_name_request():
     e = with_profile(PROFILE, D("Lovely, thank you!", intent="agreed"))
     e.handle(Event("manager_message", text="The name of the restaurant is The Ivy."))
