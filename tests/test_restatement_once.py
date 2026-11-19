@@ -1,4 +1,6 @@
 """One restatement: it waits for a name or phone the manager asked for, and "correction" only when a fact changed."""
+import pytest
+
 from agent import restate
 from agent.brain import D
 from agent.events import Event, NotifyOwner, SendText, SendVoice
@@ -165,6 +167,29 @@ def test_a_number_that_is_not_the_booking_time_is_not_a_yes():
         assert not policy.manager_yes(t, "17:00"), t
     for t in ("Yes, see you at 17:00", "Yes, for two at 5pm", "Ok, 5pm then"):
         assert policy.manager_yes(t, "17:00"), t
+
+
+def test_hold_on_and_sorry_one_moment_are_a_stall():
+    from agent import policy
+    for t in ("Hold on", "Wait a moment please", "Sorry, one moment"):
+        assert policy.manager_stall(t, "17:00") and not policy.manager_yes(t, "17:00"), t
+    for t in ("Sorry, no, one moment", "Wait, only 18:00", "Hold on, but not at 17:00", "Sorry, let me check 18:00"):
+        assert not policy.manager_stall(t, "17:00"), t
+
+
+@pytest.mark.parametrize("stall", ["Hold on", "Wait a moment please", "Sorry, one moment"])
+def test_hold_on_keeps_the_confirm_question_open(stall):
+    e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
+    e.handle(Event("manager_message", text=f"Hello, {REST} here. What name is it under?"))
+    e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk"))
+    e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
+    assert e.confirm_asked
+    e.brain.push(D("Of course, thank you.", intent="question"))
+    acts = e.handle(Event("manager_message", text=stall))
+    assert restatements(acts) == [] and not e.agreed and e.confirm_asked
+    e.brain.push(D("Thank you!", intent="closing"))
+    said = restatements(e.handle(Event("manager_message", text="Yes, all booked")))
+    assert len(said) == 1 and e.n_restated == 1
 
 
 def test_ok_let_me_check_after_the_confirm_question_sends_no_restatement():

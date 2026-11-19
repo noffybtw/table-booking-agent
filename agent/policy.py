@@ -306,10 +306,14 @@ def manager_yes(text: str, time: str | None) -> bool:
     return bool(MANAGER_YES_RE.match(t)) and _only_yes_words(t, time)
 
 
+STALL_WORDS_RE = re.compile(r"\b(?:wait|hold on|sorry)\b", re.I)
+
+
 def manager_stall(text: str, time: str | None) -> bool:
     """"Ok, let me check" with no question, no "but" and no other time: the confirm question still stands."""
     t = (text or "").strip()
-    return (bool(MANAGER_STALL_RE.search(t)) and "?" not in t and not MANAGER_NOT_RE.search(t)
+    rest = STALL_WORDS_RE.sub(" ", t)  # "Hold on", "Sorry, one moment": the stall words are not a "no" here
+    return (bool(MANAGER_STALL_RE.search(t)) and "?" not in t and not MANAGER_NOT_RE.search(rest)
             and all(time in cands for _, cands in guard.find_times(t)))
 
 
