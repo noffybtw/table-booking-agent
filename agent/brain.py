@@ -128,7 +128,8 @@ class GroqBrain:
         usage = comp.usage.total_tokens if comp.usage else None
         meta = {"model": model, "mode": mode, "latency_s": round(self.mono() - t0, 2), "tokens": usage,
                 "ratelimit": hdr}
-        return comp.choices[0].message.content or "", meta
+        msg = comp.choices[0].message if comp.choices else None
+        return (getattr(msg, "content", None) or ""), meta  # no choice: empty text, retried as invalid JSON
 
     def _wait(self, model: str) -> tuple[float, float]:
         now = self.mono()
@@ -188,6 +189,9 @@ class GroqBrain:
             except openai.APIStatusError as e:
                 errors.append(f"{model}: {e.status_code}")
                 attempts[model] = 2
+                continue
+            except Exception as e:  # noqa: BLE001 - anything else from one call counts as a failed try
+                errors.append(f"{model}: {type(e).__name__}")
                 continue
             try:
                 d = parse_decision(content)

@@ -71,6 +71,16 @@ class OffsetClock:
         return self.start + (clock.london_now() - self.t0)
 
 
+async def feed_safely(runner, log, owner, ev) -> None:
+    """One turn. An unexpected error in it is logged and told to the owner; the run goes on with the next event."""
+    try:
+        await runner.feed(ev)
+    except Exception as e:  # noqa: BLE001 - one bad turn must not end a live chat
+        error = f"{type(e).__name__}: {str(e)[:160]}"
+        log.record_note(f"error in the {ev.kind} turn ({error}), the run goes on")
+        await runner._safe(owner.notify(f"Ошибка в ходе {ev.kind}: {error}. Агент продолжает."))
+
+
 # ---------- sim ----------
 
 def cmd_sim(args, secrets) -> int:
@@ -202,7 +212,7 @@ async def cmd_dry(args, secrets) -> int:
                 continue
             if ev.kind.startswith("manager") and ev.messages and ev.messages[0].text:
                 last_text = ev.messages[-1].text
-            await runner.feed(ev)
+            await feed_safely(runner, log, runner.owner, ev)
     finally:
         timers.cancel_all()
         reader.cancel()
@@ -268,7 +278,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                 except asyncio.TimeoutError:
                     ev = None
                 if ev is not None:
-                    await runner.feed(ev)
+                    await feed_safely(runner, log, owner, ev)
                 t = now()
                 if engine.phase == CONFIRMED and confirmed_at is None:
                     confirmed_at = t

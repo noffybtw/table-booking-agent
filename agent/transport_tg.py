@@ -147,8 +147,12 @@ class TelegramTransport:
             return
         if m.voice:
             self.raw_dir.mkdir(parents=True, exist_ok=True)
-            path = await m.download_media(file=str(self.raw_dir / f"in-{m.id}.ogg"))
-            msg = await voice_msg(path, m.id, self.transcribe)
+            try:
+                path = await m.download_media(file=str(self.raw_dir / f"in-{m.id}.ogg"))
+            except Exception as e:  # noqa: BLE001 - goes on as an unreadable voice note, the manager is asked to type
+                msg = Msg(None, m.id, kind="voice", error=f"download failed: {type(e).__name__}: {str(e)[:120]}")
+            else:
+                msg = await voice_msg(path, m.id, self.transcribe)
         elif m.raw_text:
             msg = Msg(m.raw_text, m.id)
         elif m.media:
