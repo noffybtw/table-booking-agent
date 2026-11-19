@@ -159,6 +159,14 @@ def test_a_stalling_answer_to_the_confirm_question_is_not_a_yes():
     assert not policy.manager_yes("Yes, the chef says so", "17:00")
 
 
+def test_a_number_that_is_not_the_booking_time_is_not_a_yes():
+    from agent import policy
+    for t in ("Ok, 18.30 then", "Yes, 3", "Ok, 6", "Yes, 18", "Ok 1830", "Yes, 20/11"):
+        assert not policy.manager_yes(t, "17:00"), t
+    for t in ("Yes, see you at 17:00", "Yes, for two at 5pm", "Ok, 5pm then"):
+        assert policy.manager_yes(t, "17:00"), t
+
+
 def test_ok_let_me_check_after_the_confirm_question_sends_no_restatement():
     e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
     e.handle(Event("manager_message", text=f"Hello, {REST} here. What name is it under?"))

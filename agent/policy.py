@@ -282,7 +282,7 @@ def _only_yes_words(text: str, time: str | None) -> bool:
     for said, cands in guard.find_times(text):
         if time in cands:
             t = t.replace(said.lower(), " § ")
-    words = re.findall(r"[a-z']+|§", t)
+    words = re.findall(r"[a-z']+|\d+|§", t)  # a number that is not the booking time is not a yes word
     i = 0
     while i < len(words):
         step = next((len(p) for p in _YES_PHRASES if tuple(words[i:i + len(p)]) == p), 0)
