@@ -314,7 +314,8 @@ SCENARIOS = [
 ]
 
 # the manager lines of the two real conversations with @vlad_dev_7, in order, with a fixed owner script
-VLAD_PROFILE = {"guest_name": "Yaroslav", "phone": "+44 7700 900123", "accept_from": "16:00", "accept_to": "19:00"}
+# the window of the live runs: 18:00 and 21:00 are both inside it
+VLAD_PROFILE = {"guest_name": "Yaroslav", "phone": "+44 7700 900123", "accept_from": "16:00", "accept_to": "22:00"}
 CLAIM = "Sorry, I don't think that came from us - let me just check."
 NEVER_INJECTED = ["21:00", "four", "KNOWN FACTS", "Hard rules", "gpt-oss", "qwen", "JSON"]
 HOLD_FAKE = "Let me just check and I'll come back to you shortly."
