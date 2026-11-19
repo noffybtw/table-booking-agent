@@ -43,3 +43,39 @@ def test_templates_have_no_persona_wording():
 def test_not_a_bot_question():
     assert not policy.asks_if_bot("What time would you like?")
     assert not policy.asks_if_bot("We have a table at 17:00.")
+    assert not policy.asks_if_bot("Our card machine is down, cash only.")
+    assert not policy.asks_if_bot("It's £20 a person.")
+
+
+@pytest.mark.parametrize("question", ["is this AI", "You sound like a robot.", "are you real"])
+def test_bot_question_without_a_question_mark_keeps_the_honest_answer(question):
+    answer = "I'm an AI assistant making this booking. Could I have a table for two today at 17:00?"
+    e = opened(D(answer, intent="bot_question"))
+    assert sends(e.handle(Event("manager_message", text=question))) == [answer]
+
+
+def test_bot_question_followed_by_another_message_keeps_the_honest_answer():
+    answer = "Yes, I'm an AI assistant making this booking. Could I have a table for two today at 17:00?"
+    e = opened(D(answer, intent="bot_question"))
+    ev = Event("manager_message", messages=[eng.Msg("Are you a bot?"), eng.Msg("Hello??")])
+    assert sends(e.handle(ev)) == [answer]
+    # the model stays quiet: the honest line goes from code, not silence
+    e = opened(D("", action="wait", intent="bot_question"))
+    assert sends(e.handle(Event("manager_message", text="Are you a bot?"))) == ["I'm an AI assistant making this booking."]
+
+
+@pytest.mark.parametrize("question", ["Who am I speaking with?", "Sorry, who is this?"])
+@pytest.mark.parametrize("draft", ["I'm an assistant making this booking.", "It's for my client.",
+                                   "Let me just check that and come back to you.", ""])
+def test_identity_question_gets_the_honest_line_never_a_holding_line(question, draft):
+    e = opened(D(draft, intent="question"))
+    out = sends(e.handle(Event("manager_message", text=question)))
+    assert out == ["I'm an AI assistant making this booking."]
+
+
+def test_identity_question_with_a_profile_name():
+    from agent.profile import from_dict
+    e = opened(D("It's for my client. Is 17:00 still free?", intent="question"))
+    e.profile = from_dict({"guest_name": "Yaroslav"})
+    out = sends(e.handle(Event("manager_message", text="Who is this?")))
+    assert out == ["I'm an AI assistant making this booking under the name Yaroslav. Is 17:00 still free?"]

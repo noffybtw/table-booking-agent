@@ -463,9 +463,21 @@ BOT_QUESTION_RE = re.compile(r"\b(?:bot|robot|ai|a\.i\.|artificial|automated|mac
                              r"a person|computer)\b", re.I)
 
 
+# with no "?" only a direct "is this AI", "you sound like a robot", "are you real" counts
+BOT_STATEMENT_RE = re.compile(r"\b(?:are|is) (?:you|this|it|that)\b(?: \w+){0,3} (?:a |an )?(?:bot|robot|ai|a\.i\.|"
+                              r"artificial|automated|machine|chat ?gpt|human|real|computer)\b|"
+                              r"\byou (?:sound|seem|look|write|type|talk)(?: \w+){0,2} like\b|"
+                              r"\byou(?:'re| are) (?:a |an )?(?:bot|robot|ai|machine|computer)\b", re.I)
+IDENTITY_RE = re.compile(r"\bwho (?:am i|are we) (?:speaking|talking|chatting|writing) (?:with|to)\b|"
+                         r"\bwho(?:'s| is) (?:this|that|speaking|writing|messaging)\b|\bwho are you\b", re.I)
+
+
 def asks_if_bot(text: str) -> bool:
-    """The manager asks whether the agent is a bot, an AI or a human."""
-    return bool(text and "?" in text and BOT_QUESTION_RE.search(text))
+    """The manager asks whether the agent is a bot, an AI or a human, or who is writing."""
+    if not text:
+        return False
+    return bool("?" in text and BOT_QUESTION_RE.search(text) or BOT_STATEMENT_RE.search(text)
+                or IDENTITY_RE.search(text))
 
 
 def drop_persona(text: str) -> tuple[str, bool]:

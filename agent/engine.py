@@ -38,6 +38,9 @@ CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
 # "Please let me know if that works." in front of the confirm question is a second question: cut it
 LET_ME_KNOW_RE = re.compile(r"(?:^|[,;]?\s+-?\s*)(?:and\s+)?(?:please\s+)?(?:do\s+)?let me know if that(?:'s| is)? "
                             r"(?:works?|suits?|okay|ok|all right|alright|fine)(?: for you| with you)?\s*[.!]*\s*$", re.I)
+HONEST = "I'm an AI assistant making this booking{under}."
+# a sentence of the draft that a code honest answer replaces: a persona line, a "no, I'm real", a check with nothing asked
+NOT_HONEST_RE = re.compile(r"\b(?:real|human|person|people|bot|robot|machine)\b|^no\b", re.I)
 OWNER_FIELD_GUARD = "guard: owner-held field asked from the manager, template used"
 PERSONA_GUARD = "guard: assistant or third-person wording, clause removed"
 FIELD_WORDS = {"guest_name": "name", "phone": "contact number", "email": "email"}
@@ -86,6 +89,7 @@ class Engine:
         self.last_voice = False
         self.retry: tuple[str, bool, list[str] | None] | None = None
         self.brain_down_sent = False
+        self.bot_asked = False               # the manager asked if this is a bot or who writes; no answer sent yet
 
     # ---------- public ----------
 
@@ -174,6 +178,8 @@ class Engine:
                                    "text": m.text or "", "old_text": ev.old_text or None, "lang": m.lang,
                                    "error": m.error}))
         self.last_voice = any(m.kind == "voice" for m in msgs)
+        if any(policy.asks_if_bot(m.text or "") for m in msgs):
+            self.bot_asked = True
 
         if failed_voice and all(m.kind == "voice" and not m.text for m in msgs):
             acts.append(Log("decision", {"understood": "voice note I could not transcribe",
@@ -615,6 +621,10 @@ class Engine:
                 # the manager wrote while the owner is still asked ("Any luck?"): silence would read as gone
                 acts += self._say(STILL_CHECKING, event, "the owner has not answered yet; still checking",
                                   fallback=STILL_CHECKING, voice=voice)
+            elif self.bot_asked and said is not None:
+                line = self._honest()
+                acts += self._say(line, event, "the manager asked who writes; honest answer", fallback=line,
+                                  voice=voice)
             return acts
         why = d.decision or d.action
         # every draft blocked: a closing after the restatement, otherwise a holding line and the owner is asked
@@ -682,6 +692,8 @@ class Engine:
         text, cut = self._persona(text, fallback)
         if cut:
             why += f" ({PERSONA_GUARD})"
+        if self.bot_asked and text and not re.search(r"\bAI\b", text):
+            text, why = self._with_honest(text), why + " (the manager asked who writes: honest answer from code)"
         probs = guard.check(text, self.facts, self.chat_texts) if text else [guard.Problem("empty", "no text")]
         acts.append(Log("guard", {"text": text, "problems": [str(p) for p in probs],
                                   "result": "ok" if not probs else "blocked"}))
@@ -724,6 +736,7 @@ class Engine:
                 text, why = other, why + " (the same holding line went out before: another wording)"
         self.n_out += 1
         self.transcript.append(f"AGENT: {text}")
+        self.bot_asked = self.bot_asked and not re.search(r"\bAI\b", text)
         acts.append((SendVoice if voice else SendText)(text, why, self.n_out))
         if rearm:
             acts += self._arm_silence()
@@ -781,10 +794,25 @@ class Engine:
             out += f" {ASK_RESTAURANT_ALSO}"
         return out.strip() or HOLD, True
 
+    def _honest(self) -> str:
+        name = self.facts.get("guest_name") or (self.profile.get("guest_name") if self.profile else None)
+        if name and not self.facts.get("guest_name"):
+            self.facts.set("guest_name", name, "owner", self.turn)  # the profile's name goes out with the answer
+        return HONEST.format(under=f" under the name {name}" if name else "")
+
+    def _with_honest(self, text: str) -> str:
+        """The honest answer in front of the draft; the draft's own persona, "I'm real" and, with nothing asked of
+        the owner, holding sentences leave."""
+        kept = [x for x in re.split(r"(?<=[.!?])\s+", text.strip())
+                if x and not policy.PERSONA_RE.search(x) and not NOT_HONEST_RE.search(x)
+                and not (not self.pending and (CHECKING_RE.search(x) or x in HOLD_AGAIN))]
+        return " ".join([self._honest()] + kept)
+
     def _persona(self, text: str, fallback: str | None) -> tuple[str, bool]:
-        """"assistant", "the guest", "my client", "on behalf of" leave the text, unless the manager's last message
-        asks whether this is a bot, an AI or a human. Nothing left -> the fallback template or the holding line."""
-        if policy.asks_if_bot(self.manager_texts[-1] if self.manager_texts else ""):
+        """"assistant", "the guest", "my client", "on behalf of" leave the text, unless the manager asked whether
+        this is a bot, an AI or a human, or who writes, and no answer went out yet. Nothing left -> the fallback
+        template or the holding line."""
+        if self.bot_asked:
             return text, False
         out, cut = policy.drop_persona(text)
         if not cut:
