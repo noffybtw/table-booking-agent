@@ -355,7 +355,9 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
             await transport.stop()
         try:
             from agent.render import render
-            png = render(rd, title=f"@{peer}", manager_name="Manager", agent_name="Booking agent")
+            # the Playwright sync API refuses to run inside the event loop, so it gets a worker thread
+            png = await asyncio.to_thread(render, rd, title=f"@{peer}", manager_name="Manager",
+                                          agent_name="Booking agent")
             print(f"transcript: {png}")
         except Exception as e:  # noqa: BLE001 - the picture is a bonus, the logs are already written
             print(f"transcript not rendered: {type(e).__name__}: {e}", file=sys.stderr)

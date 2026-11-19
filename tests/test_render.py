@@ -13,3 +13,13 @@ def test_render_shows_only_the_chat(tmp_path):
     png = render(tmp_path, title="<b>sim</b>")
     assert png.stat().st_size > 10_000
     assert "&lt;b&gt;sim" in (tmp_path / "transcript.html").read_text()
+
+
+def test_render_works_from_inside_the_running_loop(tmp_path):
+    """cmd_telegram renders while asyncio runs; a direct call there fails with "Sync API inside the asyncio loop"."""
+    import asyncio
+    harness.run(BY_NAME["happy"], FakeBrain(), tmp_path, echo=lambda s: None)
+
+    async def go():
+        return await asyncio.to_thread(render, tmp_path, title="@noffybtw")
+    assert asyncio.run(go()).stat().st_size > 10_000
