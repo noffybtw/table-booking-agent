@@ -90,6 +90,8 @@ class Engine:
         self.agreed_by: str | None = None    # the manager's words the agreement came with, quoted when asked
         self.agreed_sig: tuple | None = None  # (time, party size) the manager agreed to
         self.retracted = False               # the manager said it is not confirmed: the model's yes needs new words
+        self.withdrawn: str | None = None    # the manager took the table back ("the table was released") until a new yes
+        self.agreed_offer = False            # the agreement is the manager's offer we took, not a yes to our time
         self.offer_said = ""                 # the manager's offer the owner just took
         self.ref_thanks = False              # a reference came: the next message thanks for it once
         self.asked_restaurant = False
@@ -155,7 +157,9 @@ class Engine:
         """The same state for the owner, in OWNER_LANG."""
         yes_no = {True: texts.t("yes"), False: texts.t("no")}
         pending = ", ".join(policy.key_name(k) for k in self.pending) or texts.t("nothing")
-        return texts.t("status", phase=texts.t(f"phase.{self.phase}"), agreed=yes_no[self.agreed], pending=pending,
+        sure = self.manager_confirmed()
+        phase = OPEN if self.phase == CONFIRMED and not sure else self.phase
+        return texts.t("status", phase=texts.t(f"phase.{phase}"), agreed=yes_no[sure], pending=pending,
                        restated=yes_no[self.restated_sig is not None], n_in=self.n_in, n_out=self.n_out)
 
     # ---------- events ----------
@@ -211,6 +215,13 @@ class Engine:
                 self.chat_texts.append(m.text)
             if ev.kind == "manager_edit" and ev.old_text:
                 self.chat_texts.append(ev.old_text)
+            kind = policy.withdrawal(m.text or "") if m.kind != "media" else None
+            if kind:
+                t = self.facts.get("time")
+                self.withdrawn = {"released": "the table was released", "cancelled": "the booking was cancelled",
+                                  "given_away": "the table was given away", "gone": f"{t} had gone",
+                                  "no_longer": f"{t} is no longer available"}[kind]
+                acts.append(Log("note", {"text": f"the manager says {self.withdrawn}: not confirmed until a new yes"}))
             acts.append(Log("in", {"n": self.n_in, "kind": "edit" if ev.kind == "manager_edit" else m.kind,
                                    "text": m.text or "", "old_text": ev.old_text or None, "lang": m.lang,
                                    "error": m.error}))
@@ -346,9 +357,11 @@ class Engine:
         if key == "alternative_time" and offered:
             self.offer_said = self.pending.get(key, {}).get("said", "")
             if self.facts.get("time") == offered:
-                # the manager offered it and the owner took it: the new time is agreed on both sides
+                # the manager offered it and the owner took it: the new time is agreed on both sides, and what the
+                # manager took back was the old one
                 self.facts.confirm("time")
                 self.took_time = True
+                self.withdrawn = None
                 summary = f"accepted {offered}"
             else:
                 self.declined_times.add(offered)  # only on "only" or a no: anything else was asked again above
@@ -595,6 +608,7 @@ class Engine:
                 f.confirm("time")
                 f.drop("offered_time")
                 window_took = self.took_time = True
+                self.withdrawn = None
                 notes.append(f"manager offered {offered}: inside the owner's window {self.profile.window}, taken")
             else:
                 why_not = ("outside the owner's window" if not self.profile.inside(offered) else
@@ -653,16 +667,26 @@ class Engine:
             notes.append("agreement taken back: the manager offers another time or has no table")
         if window_took:
             agreed_now = True  # the manager offered the time and the owner's window takes it
-        if (agreed_now and self.retracted and said is not None and not window_took
+        if (agreed_now and (self.retracted or self.withdrawn) and said is not None and not window_took
                 and not policy.AGREE_WORD_RE.search(" ".join(said))):
             agreed_now = False
-            notes.append("the manager said it is not confirmed; the model's agreement needs a new yes")
+            notes.append("the manager said it is not confirmed or took the table back; the model's agreement needs "
+                         "a new yes")
+        if agreed_now and trusted_now and policy.withdrawal(" ".join(said)):
+            agreed_now = False
+            notes.append("the model's agreement not taken: the manager takes the table back in this message")
         if agreed_now:
             sig_now = (f.get("time"), f.get("party_size"))
-            if not self.agreed or self.agreed_sig != sig_now:
-                self.agreed_by = " ".join(said) if said else (self.offer_said or (self.manager_texts or [""])[-1])
-                self.agreed_sig = sig_now
+            heard = " ".join(said or [])
+            offer = window_took or (said is None and self.took_time)
+            real_yes = bool(said and not window_took and policy.AGREE_WORD_RE.search(heard) and "?" not in heard)
+            if not self.agreed or self.agreed_sig != sig_now or (self.agreed_offer and real_yes):
+                # the quote is the message counted as the agreement: the manager's yes, or the offer we took
+                self.agreed_by = heard if said else (self.offer_said or (self.manager_texts or [""])[-1])
+                self.agreed_sig, self.agreed_offer = sig_now, offer
             self.agreed, self.retracted = True, False
+            if said is not None or self.took_time:
+                self.withdrawn = None
             for k in ("time", "date", "party_size"):
                 f.confirm(k)
 
@@ -910,6 +934,11 @@ class Engine:
         if probs:
             acts.append(NotifyOwner(texts.t("guard_nothing", why=guard.describe(first))))
             return acts
+        if text and policy.SELF_CONFIRM_RE.search(text):
+            line = self._who_confirmed()[0]
+            acts.append(Log("guard", {"text": text, "problems": ["says the agent confirmed the booking"],
+                                      "result": "blocked"}))
+            text, why = line, why + " (guard: only the manager confirms; the code answer sent)"
         tainted = self._tainted_out(text)
         if tainted:
             # a time or party size only a claim or a refused line named never goes out as ours
@@ -999,10 +1028,40 @@ class Engine:
         taint["times"] = taint["times"] - ok
         return policy.names_tainted(text or "", taint)
 
-    def manager_confirmed(self) -> bool:
-        """The manager agreed to the current time and party size after their last change."""
+    def not_confirmed_why(self) -> str | None:
+        """None when the manager's last agreement covers the current time and party size and nothing after it took
+        the table back, asks about another time or says our side changed something; else why not, in a few words."""
         f = self.facts
-        return bool(self.agreed and self.agreed_by and self.agreed_sig == (f.get("time"), f.get("party_size")))
+        n = int(f.get("party_size"))
+        if not (self.agreed and self.agreed_by and self.agreed_sig == (f.get("time"), f.get("party_size"))):
+            return f"you haven't confirmed the table for {restate.NUMBER_WORDS.get(n, str(n))} at {f.get('time')}"
+        if self.withdrawn:
+            return f"you wrote that {self.withdrawn}"
+        if "alternative_time" in self.pending or f.get("offered_time"):
+            other = f.get("offered_time") or (self.pending.get("alternative_time") or {}).get("offered")
+            return f"I'm still checking {other or 'the other time'}"
+        if "claim" in self.pending:
+            return "I'm still checking the change you mentioned"
+        return None
+
+    def manager_confirmed(self) -> bool:
+        return self.not_confirmed_why() is None
+
+    def _who_confirmed(self) -> tuple[str, str]:
+        """(the answer with the quote, the same without it)."""
+        f = self.facts
+        n = int(f.get("party_size"))
+        table = f"the table for {restate.NUMBER_WORDS.get(n, str(n))} at {f.get('time')}"
+        why = self.not_confirmed_why()
+        if why is None:
+            if self.agreed_offer:
+                return (f'You offered {f.get("time")} and I took it - you wrote: "{self.agreed_by}"',
+                        f"You offered {f.get('time')} and I took it.")
+            return f'You did - you wrote: "{self.agreed_by}"', f"You did, for {table}."
+        if self.withdrawn and self.agreed and self.agreed_by:
+            line = f"You wrote \"{self.agreed_by}\", but then {why.removeprefix('you wrote that ')}."
+            return line, f"No one now - {why}."
+        return f"No one yet - {why}.", f"No one yet - {why}."
 
     def _summary(self) -> str:
         """What the owner would be told now; an unknown field is said to be unknown."""
@@ -1027,7 +1086,8 @@ class Engine:
         f = self.facts
         n = int(f.get("party_size"))
         table = f"the table for {restate.NUMBER_WORDS.get(n, str(n))} at {f.get('time')}"
-        sure = self.manager_confirmed()
+        why = self.not_confirmed_why()
+        sure = why is None
         kinds = policy.chat_questions(heard)
         parts, plain = [], []  # plain: the same without quotes, sent if the guard stops a quote
         for kind in kinds:
@@ -1037,16 +1097,13 @@ class Engine:
                 elif policy.YES_NO_RE.search(heard):
                     line = "Yes." if sure else "No."
                 else:
-                    line = f"Yes - you confirmed {table}." if sure else f"Not yet - you haven't confirmed {table}."
+                    line = f"Yes - you confirmed {table}." if sure else f"Not yet - {why}."
                 parts.append(line)
                 plain.append(line)
             elif kind == "who_confirmed":
-                if sure:
-                    parts.append(f'You did - you wrote: "{self.agreed_by}"')
-                    plain.append(f"You did, for {table}.")
-                else:
-                    parts.append(f"No one yet - you haven't confirmed {table}.")
-                    plain.append(parts[-1])
+                line, bare = self._who_confirmed()
+                parts.append(line)
+                plain.append(bare)
             elif kind == "reference":
                 ref = f.get("reference")
                 parts.append(f"You gave me reference {ref}." if ref else "You haven't given me a reference yet.")

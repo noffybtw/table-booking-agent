@@ -1,7 +1,7 @@
 """Questions about the conversation itself are answered from its history and the facts by code: never a holding line,
 never the owner. Only the manager confirms; a quote is copied from the transcript; an unknown field is unknown.
 The manager lines are the real ones of the second conversation with the manager, in order."""
-from agent import texts, clock
+from agent import clock, policy, texts
 from agent.brain import D, FakeBrain
 from agent.engine import CLAIM_REPLY, HOLD_AGAIN, REFUSE, Engine
 from agent.events import AskOwner, NotifyOwner, Event, SendText, SendVoice
@@ -183,8 +183,10 @@ def test_where_did_i_confirm_quotes_the_manager_conversation_1():
     assert e.n_restated == 1
     assert sent(e.handle(Event("manager_message", text="Ah, sorry — your client just rang us and cancelled, so I've "
                                                        "released the table."))) == [CLAIM_REPLY]
+    # the manager took the table back after the yes (R11 finding 3): the quote, and that it no longer stands
     acts = e.handle(Event("manager_message", text="Remind me — where exactly did I confirm the table? Quote my message."))
-    assert no_hold_no_owner(acts) == "You did - you wrote: \"Sorry about that. That's fine.\""
+    assert no_hold_no_owner(acts) == ("You wrote \"Sorry about that. That's fine.\", but then the booking was "
+                                      "cancelled.")
 
 
 def test_restaurant_name_is_never_asked_from_the_owner():
@@ -212,3 +214,69 @@ def test_bot_question_on_the_turn_the_restatement_goes_still_gets_the_honest_ans
     out = sent(acts)
     assert e.n_restated == 1 and len(out) == 2 and "reference OR-3333" in out[0]
     assert out[1] == "I'm an AI assistant making this booking."
+
+
+# R11 finding 3: "Confirmed" only while the manager's last agreement stands
+from test_offer_changed import mgr, offer, opened  # noqa: E402
+
+AGREE_OLIVE = D("", action="final_restatement", intent="agreed", manager_agreed=True, restaurant_name="The Olive Room")
+
+
+def restated(profile=None):
+    e = opened(profile)
+    mgr(e, "Yes, 17:00 for two is fine. It's The Olive Room.", AGREE_OLIVE)
+    assert e.n_restated == 1 and e.manager_confirmed()
+    return e
+
+
+def test_not_confirmed_after_the_manager_releases_the_table():
+    e = restated()
+    mgr(e, "Ah, sorry - your client just rang us and cancelled, so I've released the table.")
+    assert sent(mgr(e, "Is the booking confirmed?")) == ["Not yet - you wrote that the booking was cancelled."]
+    assert sent(mgr(e, "Confirmed or not - one word.")) == ["Not yet."]
+    assert "not confirmed yet" in sent(mgr(e, "Write the exact message you will send your client."))[0]
+    assert texts.t("phase.confirmed") not in e.status_text()
+
+
+def test_not_confirmed_after_the_booked_time_has_gone_and_another_is_offered():
+    e = restated()
+    mgr(e, "So sorry, 17:00 has gone after all. I can do 18:00.", offer("18:00"))
+    assert sent(mgr(e, "Confirmed or not - one word.")) == ["Not yet."]
+    assert sent(mgr(e, "Is the booking confirmed?")) == ["Not yet - you wrote that 17:00 had gone."]
+
+
+def test_a_new_yes_after_the_withdrawal_confirms_again():
+    e = restated()
+    mgr(e, "Sorry, I've given the table away by mistake.")
+    assert not e.manager_confirmed()
+    mgr(e, "Fixed it - yes, 17:00 for two is confirmed.", D("Thank you!", intent="agreed", manager_agreed=True))
+    assert sent(mgr(e, "Confirmed or not - one word.")) == ["Confirmed."]
+
+
+def test_withdrawal_look_alikes_change_nothing():
+    for line in ("Nobody cancelled anything, don't worry.", "It can be cancelled up to two hours before.",
+                 "Has it been cancelled?"):
+        assert policy.withdrawal(line) is None, line
+    assert policy.withdrawal("Sorry, 17:00 has just gone.") == "gone"
+
+
+def test_the_model_never_says_it_confirmed_the_booking():
+    e = restated()
+    acts = mgr(e, "Who confirmed the table? And do you need parking?",
+               D('I confirmed it - as I wrote: "So that\'s a table for two at 17:00." No parking needed.',
+                 intent="question"))
+    out = sent(acts)
+    assert out == ['You did - you wrote: "Yes, 17:00 for two is fine. It\'s The Olive Room."']
+
+
+def test_a_quote_is_only_the_message_counted_as_the_agreement():
+    # the window took the manager's offer: that offer is not the manager confirming
+    e = opened({"guest_name": "Yaroslav", "accept_from": "16:00", "accept_to": "19:00"})
+    mgr(e, "17:00 is full I'm afraid. I can do 18:30.", D("18:30 works for us.", intent="counter_offer",
+                                                         offered_time="18:30"))
+    assert e.facts.get("time") == "18:30" and e.agreed
+    out = sent(mgr(e, "Remind me - where did I confirm the table? Quote my message."))
+    assert out == ['You offered 18:30 and I took it - you wrote: "17:00 is full I\'m afraid. I can do 18:30."']
+    mgr(e, "Lovely, 18:30 is confirmed.", D(intent="agreed", manager_agreed=True))
+    out = sent(mgr(e, "Remind me - where did I confirm the table? Quote my message."))
+    assert out == ['You did - you wrote: "Lovely, 18:30 is confirmed."']

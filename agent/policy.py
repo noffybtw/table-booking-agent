@@ -632,6 +632,34 @@ def not_confirmed(text: str) -> bool:
                if not s.rstrip().endswith("?"))
 
 
+# the manager takes the table back: "I've released the table", "17:00 has gone after all", "no longer available";
+# "nobody cancelled", "it can be cancelled up to two hours before" and a question are not
+WITHDRAW_RE = re.compile(r"\b(?P<released>released)\b|\b(?P<cancelled>cancell?ed)\b|"
+                         r"\b(?P<given_away>given (?:it |the table |your table |the slot )?away)\b|"
+                         r"\b(?P<no_longer>no longer)\b|"
+                         r"\b(?:has|have|'s|is|just|now|already)\s+(?:just\s+|now\s+|already\s+)?(?P<gone>gone)\b", re.I)
+WITHDRAW_NOT_RE = re.compile(r"\b(?:not|never|nobody|no one|hasn't|haven't|isn't|wasn't|didn't|don't|can|could|may|"
+                             r"might|will|would|should|if|to|be|cancellation)\b(?:\s+\w+){0,2}\s*$", re.I)
+
+
+def withdrawal(text: str) -> str | None:
+    """"released", "cancelled", "given_away", "no_longer" or "gone" when the manager says the table or the time
+    is taken back; None otherwise."""
+    for sent in re.split(r"(?<=[.!?])\s+", (text or "").strip().replace("\u2019", "'")):
+        if sent.rstrip().endswith("?"):
+            continue
+        for m in WITHDRAW_RE.finditer(sent):
+            if not WITHDRAW_NOT_RE.search(sent[:m.start()]):
+                return m.lastgroup
+    return None
+
+
+# the agent says it confirmed the booking itself; only the manager confirms
+SELF_CONFIRM_RE = re.compile(r"\b(?:I|we)(?:'ve| have| had)?(?: already| just| now)? confirmed\b(?! with\b| that\b)|"
+                             r"\bconfirmed (?:it )?by (?:me|us|our side)\b|\b(?:I|we) (?:was|were) the ones? who confirmed\b",
+                             re.I)
+
+
 ENDS_RE = re.compile(r"\bthat'?s all\b|\bthat is all\b|\bnothing else\b|\b(?:good)?bye\b|\bspeak soon\b|"
                      r"\btake care\b", re.I)
 
