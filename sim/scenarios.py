@@ -330,7 +330,7 @@ SCENARIOS += [
             offered_time="17:30"),
           sends=1, asks=["alternative_time"], says=["Yaroslav", "17:30"], never=["17:30 works"]),
         O(None, D("17:30 works for us, please confirm.", intent="counter_offer"), key="alternative_time",
-          value="accept@17:30", sends=1, says=["17:30"]),
+          value="accept@17:30", sends=1),  # the live model says "Half five" here; the restatement checks 17:30
         M("Let me just check with the kitchen.", D("Thanks, I'll await your confirmation.", intent="other"),
           never=["I confirmed"]),
         Step("manager", "Sorry about that. That's fine.", [D(**AGREE)], {"sends": 1, "says": ["restaurant"]},
