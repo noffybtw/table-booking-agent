@@ -441,7 +441,7 @@ class Engine:
         if quiet:
             return acts
 
-        reply = d.reply.strip()
+        reply = self._with_detail(d.reply.strip()) if d.action not in ("wait", "end") else d.reply.strip()
         if hold_restatement:
             acts += self._say(reply or (HOLD if new_keys else STILL_CHECKING), event,
                               f"holding line; the restatement goes once {', '.join(waiting)} is back", fallback=HOLD,
@@ -607,11 +607,23 @@ class Engine:
             return f"Thank you for waiting - the contact number is {self.facts.get('phone')}."
         return None
 
+    def _with_detail(self, reply: str) -> str:
+        """A reply on the owner's answer that leaves out the name or phone gets the detail line in front."""
+        detail = self._detail_line()
+        if not reply or not detail:
+            return reply
+        value = str(self.facts.get(self.answered))
+        if self.answered == "phone":
+            if re.sub(r"\D", "", value)[-7:] in re.sub(r"\D", "", reply):
+                return reply
+        elif value.lower() in reply.lower():
+            return reply
+        return f"{detail} {reply}"
+
     def _ask_confirm(self, reply: str, voice: bool) -> list:
         f = self.facts
         detail = self._detail_line() or ""
-        value = str(f.get(self.answered) or "")
-        lead = reply if reply and value.lower() in reply.lower() else detail
+        lead = reply or detail
         n = int(f.get("party_size"))
         q = "" if CONFIRM_RE.search(lead) else CONFIRM_Q.format(people=restate.NUMBER_WORDS.get(n, str(n)),
                                                                   time=f.get("time"))

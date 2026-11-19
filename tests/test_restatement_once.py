@@ -170,3 +170,19 @@ def test_silence_after_the_confirm_question_asks_to_confirm():
 def test_silence_before_any_agreement_still_asks_whether_a_table_is_possible():
     e = opened()
     assert texts(silence(e)) == ["Sorry to chase - just checking whether a table for two at 17:00 today might be possible?"]
+
+
+def test_a_name_left_out_of_the_reply_still_reaches_the_manager_while_the_phone_is_open():
+    e = opened(D("Let me check the name.", **AGREE_ASK, restaurant_name=REST))
+    e.handle(Event("manager_message", text=f"Yes, 17:00 is fine at {REST}. What name?"))
+    e.brain.push(D("Of course, I'll check the number too.", action="ask_owner", intent="asks_info",
+                   manager_agreed=True, needs_owner=["phone"]))
+    e.handle(Event("manager_message", text="And a contact number, please."))
+    e.brain.push(D("I'll check on the contact number and get back to you shortly.", intent="asks_info",
+                   manager_agreed=True))
+    out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
+    assert out == ["Thank you for waiting - the booking can go under Kostyk. "
+                   "I'll check on the contact number and get back to you shortly."]
+    e.brain.push(D("And the number is 07700 900123.", intent="asks_info", manager_agreed=True))
+    said = restatements(e.handle(Event("owner_answer", key="phone", text="+44 7700 900123")))
+    assert len(said) == 1  # the phone in another format is not added twice: the restatement carries it
