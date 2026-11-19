@@ -35,6 +35,12 @@ CLOSING = "Thank you very much, have a lovely day."
 # a line that says our side called, cancelled or changed something, and a line of instructions to the agent: neither is
 # a fact, the code answers them without a model call
 CLAIM_REPLY = "Sorry, I don't think that came from us - let me just check."
+CLAIM_AGAIN = "Sorry, I don't think that came from us either."
+CLOSING_WARM = "Thank you, have a lovely {part}."
+# while the owner is asked, a model reply with a time or one of these may decide the time: the code holds instead
+TIME_DECISION_RE = re.compile(r"\bworks? for us\b|\bonly\b|\bcan't\b|\bcannot\b|\bunfortunately\b|\binstead\b|"
+                              r"\bdoesn't work\b|\bafraid\b|\bfine\b|\bbook\w*|\bconfirm\w*", re.I)
+FILLER_RE = re.compile(r"^(?:thank you|thanks|sorry|of course|no problem)\b[\w ,']{0,20}[.!]?$", re.I)
 REFUSE = ("I'm afraid I can't help with that - I'm just here to book the table.",
           "Sorry, I can't do that - I'm only here about the table.")
 THANKS_RE = re.compile(r"^(?:thank you(?: very much)?|thanks)\b[,.!]?\s*(?:-\s*)?", re.I)
@@ -106,6 +112,8 @@ class Engine:
         self.retry: tuple[str, bool, list[str] | None] | None = None
         self.brain_down_sent = False
         self.bot_asked = False               # the manager asked if this is a bot or who writes; no answer sent yet
+        self.held_for: set[str] = set()      # owner questions a holding line went out for: one each
+        self.said_goodbye = False
 
     # ---------- public ----------
 
@@ -235,6 +243,17 @@ class Engine:
                 acts.append(Log("note", {"text": "the manager says the booking is not confirmed: no agreement stands"}))
             if policy.only_chat_questions(heard, self.facts.get("time")):
                 return acts + self._chat_answer(heard)
+            if policy.manager_ends(heard, self.phase == CONFIRMED):
+                if self.closed or self.said_goodbye:
+                    return acts + [Log("decision", {"understood": "the manager ends the conversation",
+                                                    "decided": "no reply: closing already sent"})]
+                self.said_goodbye = True
+                self.closed = self.phase == CONFIRMED
+                line = CLOSING_WARM.format(part="evening" if self.now().hour >= 12 else "day")
+                acts.append(Log("decision", {"understood": "the manager ends the conversation",
+                                             "decided": "one warm closing line from code"}))
+                return acts + self._say(line, "", "the manager ends the conversation: one warm closing line",
+                                        fallback=line, voice=self.last_voice, rearm=False)
             if policy.chat_questions(heard):
                 event += (" The manager also asks about this conversation: answer that from CHAT SO FAR and KNOWN "
                           "FACTS, quoting exactly; only the manager confirms a booking, never say you or anyone on "
@@ -315,6 +334,7 @@ class Engine:
                 summary = f"only {self.facts.get('time')}, {offered} declined"
             self.facts.drop("offered_time")
         self.pending.pop(key, None)
+        self.held_for.discard(key)
         self.gen[f"owner:{key}"] = self.gen.get(f"owner:{key}", 0) + 1
         self.transcript.append(f"OWNER (private, the manager cannot see this): {line}")
         if text:
@@ -406,7 +426,7 @@ class Engine:
             if held:
                 text += f" In the meantime, {' and '.join(self._detail_parts(held))}."
             return self._say(text, "", f"owner has not answered {key} for 10 minutes", fallback=SORRY_WAIT,
-                             rearm=False)
+                             rearm=False, once=False)
         if name == "brain_retry":
             if not self.retry or ev.gen != self.gen.get("retry"):
                 return []
@@ -513,6 +533,7 @@ class Engine:
             # the manager changed (or edited) the offer while the owner is asked: the open question names another
             # time, ask again
             self.pending.pop("alternative_time")
+            self.held_for.discard("alternative_time")
             notes.append(f"the offer changed to {offered} while the owner was asked: asking again")
         window_took = False
         if (self.profile and self.profile.window and said is not None and offered and offered != f.get("time")
@@ -629,8 +650,10 @@ class Engine:
             line = f"{detail} {hold}" if detail else hold
             return acts + self._say(line, event, "another time offered: holding line from code while the owner is "
                                     "asked, the model's draft not sent", fallback=HOLD, voice=voice)
-        if said is not None and "alternative_time" in self.pending:
-            # the manager writes again while the owner is still asked about the other time ("Hello? Is 20:00 ok?")
+        if (said is not None and "alternative_time" in self.pending
+                and (not reply or guard.find_times(reply) or TIME_DECISION_RE.search(reply) or CHECKING_RE.search(reply))):
+            # the manager writes again while the owner is still asked about the other time ("Hello? Is 20:00 ok?");
+            # a reply about something else ("Are you a bot?") goes as the model wrote it
             detail = self._detail_line() if self.from_profile else None
             line = f"{detail} {STILL_CHECKING}" if detail else STILL_CHECKING
             return acts + self._say(line, event, "another time still with the owner: still checking from code, the "
@@ -783,9 +806,10 @@ class Engine:
         return sig is not None
 
     def _say(self, draft: str, event: str, why: str, fallback: str | None, voice: bool = False,
-             rearm: bool = True) -> list:
+             rearm: bool = True, once: bool = True) -> list:
         """Guard every outgoing text. Blocked: rewrite once naming the problem, then the fallback model, then the
-        template. A blocked text is never sent."""
+        template. A blocked text is never sent. With `once`, one holding line per owner question: after it the
+        holding sentences leave the text, and a text left with nothing goes to the owner as a nudge instead."""
         acts: list = []
         text, asked = self._owner_fields(guard.fix(draft))
         if asked:
@@ -830,6 +854,18 @@ class Engine:
         if probs:
             acts.append(NotifyOwner(texts.t("guard_nothing", why=guard.describe(first))))
             return acts
+        if once and self.pending:
+            sents = re.split(r"(?<=[.!?])\s+", text.strip())
+            holds = [s for s in sents if CHECKING_RE.search(s) or s in HOLD_AGAIN]
+            if holds and set(self.pending) <= self.held_for:
+                kept = [s for s in sents if s not in holds]
+                if not kept or all(FILLER_RE.match(s) for s in kept):
+                    keys = ", ".join(policy.key_name(k) for k in self.pending)
+                    return acts + [Log("note", {"text": f"holding line not sent: one went out already for {keys}"}),
+                                   NotifyOwner(texts.t("manager_waiting", keys=keys))]
+                text, why = " ".join(kept), why + " (holding sentence left out: one went out already)"
+            elif holds:
+                self.held_for |= set(self.pending)
         if self.pending and (CHECKING_RE.search(text) or text in HOLD_AGAIN) and f"AGENT: {text}" in self.transcript:
             other = next((h for h in HOLD_AGAIN if f"AGENT: {h}" not in self.transcript), None)
             if other:
@@ -1038,9 +1074,10 @@ class Engine:
         if claims:
             if "claim" in self.pending:
                 acts.append(NotifyOwner(texts.t("claim_again", text=claims[-1][:300])))
+                line = CLAIM_AGAIN
             else:
                 acts += self._ask_key("claim", claims[-1])
-            line = CLAIM_REPLY
+                line = CLAIM_REPLY
             why = "the manager says this came from our side: not taken as a fact, the owner is asked (code line)"
         else:
             line = next((r for r in REFUSE if f"AGENT: {r}" not in self.transcript), REFUSE[0])

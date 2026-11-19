@@ -3,7 +3,7 @@ import pytest
 
 from agent import policy
 from agent.brain import D
-from agent.events import Event
+from agent.events import Event, Log
 from test_owner_answers import opened, sends
 from test_restatement_once import REST
 
@@ -58,10 +58,9 @@ def test_draft_asking_the_manager_for_the_name_goes_as_a_template():
     e.handle(Event("manager_message", text="Hello. What name is it under?"))
     e.brain.push(D("Of course - could you let me know the name to use for the booking?", intent="question"))
     acts = e.handle(Event("manager_message", text="Any news?"))
-    out = sends(acts)
-    assert out == ["I'm just checking the name and will come back to you shortly."]
-    why = [a.why for a in acts if hasattr(a, "why")]
-    assert "guard: owner-held field asked from the manager, template used" in why[0]
+    # the template is a holding line, and one went out for the name already: nothing goes, the owner is nudged
+    assert sends(acts) == [] and not any("know the name" in str(getattr(a, "text", "")) for a in acts)
+    assert any(isinstance(a, Log) and a.data.get("text", "").startswith("holding line not sent") for a in acts)
 
 
 def test_the_template_carries_the_phone_the_owner_gave():
@@ -69,8 +68,7 @@ def test_the_template_carries_the_phone_the_owner_gave():
     assert sends(e.handle(Event("owner_answer", key="phone", text="+44 7700 900123"))) == []
     e.brain.push(D("The phone number is +44 7700 900123; could you let me know the name to use?", intent="question"))
     out = sends(e.handle(Event("manager_message", text="Any luck?")))
-    assert out == ["Thank you for waiting - the contact number is +44 7700 900123. I'm just checking the name and "
-                   "will come back to you shortly."]
+    assert out == ["Thank you for waiting - the contact number is +44 7700 900123."]
 
 
 def test_held_answer_goes_with_the_restatement_after_ten_minutes():
@@ -121,5 +119,5 @@ def test_holding_line_is_never_sent_twice_word_for_word():
     second = sends(e.handle(Event("manager_message", text="Lovely. What name and phone number should I put it under?")))
     e.brain.push(D(same, intent="question"))
     third = sends(e.handle(Event("manager_message", text="Any luck?")))
-    assert len(first) == 1 and len(second) == 1 and len(third) == 1
-    assert len({first[0], second[0], third[0]}) == 3
+    assert len(first) == 1 and len(second) == 1 and third == []  # one holding line per owner question
+    assert first[0] != second[0]

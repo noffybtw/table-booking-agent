@@ -142,13 +142,17 @@ def test_stray_owner_message_gets_the_status_and_no_model_turn():
     assert e.brain.calls[-1]["facts"]["owner_note"] == "якщо що, буду вчасно"
 
 
-def test_a_chase_while_the_owner_is_asked_never_gets_silence():
-    from agent.engine import STILL_CHECKING
+def test_a_chase_after_the_holding_line_nudges_the_owner_instead_of_a_second_one():
     e = opened()
-    asked(e, "What name shall I put it under?", "guest_name")
+    first = asked(e, "What name shall I put it under?", "guest_name")
+    assert len(sends(first)) == 1
     e.brain.push(D(action="wait", intent="question"))
     acts = e.handle(Event("manager_message", text="Any luck?"))
-    assert sends(acts) == [STILL_CHECKING]
+    nudge = [a.text for a in acts if isinstance(a, NotifyOwner)]
+    assert sends(acts) == [] and nudge == [texts.t("manager_waiting", keys=texts.t("key.guest_name"))]
+    # a new question gets its own holding line
+    acts = asked(e, "And a contact number?", "phone")
+    assert len(sends(acts)) == 1
 
 
 def test_a_short_stray_owner_text_is_not_kept_as_a_note():

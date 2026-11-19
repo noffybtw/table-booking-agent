@@ -152,7 +152,7 @@ def test_closing_template_counts_as_the_closing_reply(tmp_path):
         M(f"Yes, 17:00 for two is fine at {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED),
         M("Thanks!", D(**AGREE), sends=1, says=["Thank you very much"]),
         M("Cheers!", D(**AGREE), sends=0),
-        M("You too, bye!", D("Goodbye!", intent="closing"), sends=0),
+        M("You too, bye!", sends=0),  # the code ends without a model call
         M("Sorry, is that under any name?", D("Let me just check the name and come back to you.", action="ask_owner",
                                                intent="asks_info", needs_owner=["guest_name"]),
           sends=1, asks=["guest_name"]),
@@ -164,14 +164,15 @@ def test_closing_template_counts_as_the_closing_reply(tmp_path):
 def test_quiet_rule_needs_nothing_pending(tmp_path):
     from agent.brain import D
     from sim.scenarios import AGREE, M, REST, RESTATED, Scenario, opening
-    scn = Scenario("pending_close", "a pleasantry while an owner question is open still gets an answer", [
+    scn = Scenario("pending_close", "a pleasantry while an owner question is open is not answered after closing", [
         opening(),
         M(f"Yes, 17:00 for two is fine at {REST}.", D(**AGREE, restaurant_name=REST), **RESTATED),
         M("Lovely, see you then!", D("Thank you, see you at 17:00.", intent="closing"), sends=1),
         M("Oh, and a contact number please.", D("Of course, let me just check that.",
                                                  action="ask_owner", intent="asks_info", needs_owner=["phone"]),
           sends=1, asks=["phone"]),
-        M("Thanks!", D("Thank you for bearing with me, I'm still checking.", intent="closing"), sends=1),
+        # one holding line per owner question: the phone had it, the pleasantry gets nothing more
+        M("Thanks!", D("Thank you for bearing with me, I'm still checking.", intent="closing"), sends=0),
     ])
     res = harness.run(scn, FakeBrain(), tmp_path, echo=lambda s: None)
     assert res.problems == []

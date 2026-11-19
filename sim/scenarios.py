@@ -129,7 +129,7 @@ SCENARIOS = [
           D("Yes - it's Yaroslav Petrenko, on 07700 900456.", intent="question", decision="chasing"),
           D("Not quite yet, sorry - I'm still checking both and will be right back.",
             intent="question", decision="still waiting for the owner"),
-          sends=1, blocked=True, never=["Petrenko", "900456"], asks_none=True),
+          sends=0, blocked=True, never=["Petrenko", "900456"], asks_none=True),  # one holding line per question
         O("Yaroslav", D("Thank you for waiting - the booking can go under Yaroslav.", intent="asks_info",
                         guest_name="Yaroslav", decision="owner gave the name"),
           key="guest_name", sends=1, says=["Yaroslav"]),
@@ -309,7 +309,7 @@ SCENARIOS = [
         O(None, D("Thank you, 17:30 works for us.", intent="agreed"), key="alternative_time", value="accept",
           sends=1, voice=True, says=["17:30", "Thursday 19 November", REST]),
         M("Great, thanks!", D("Thank you, see you at 17:30.", intent="closing"), sends=1),
-        M("Bye!", D("Goodbye!", intent="closing"), sends=0),
+        M("Bye!", sends=0),
     ]),
 ]
 

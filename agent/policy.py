@@ -565,6 +565,17 @@ def not_confirmed(text: str) -> bool:
                if not s.rstrip().endswith("?"))
 
 
+ENDS_RE = re.compile(r"\bthat'?s all\b|\bthat is all\b|\bnothing else\b|\b(?:good)?bye\b|\bspeak soon\b|"
+                     r"\btake care\b", re.I)
+
+
+def manager_ends(text: str, confirmed: bool) -> bool:
+    """"Thanks, that's all from me.", "Bye!": no question, no time and, before the restatement, no yes in it."""
+    t = text or ""
+    return bool(ENDS_RE.search(t) and "?" not in t and not guard.find_times(t)
+                and (confirmed or not AGREE_WORD_RE.search(t)))
+
+
 def reference(text: str) -> str | None:
     m = REFERENCE_RE.search(text or "")
     return m.group(1) if m else None

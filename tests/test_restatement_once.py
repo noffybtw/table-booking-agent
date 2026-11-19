@@ -257,8 +257,7 @@ def test_a_name_left_out_of_the_reply_still_reaches_the_manager_while_the_phone_
     e.brain.push(D("I'll check on the contact number and get back to you shortly.", intent="asks_info",
                    manager_agreed=True))
     out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
-    assert out == ["Thank you for waiting - the booking can go under Kostyk. "
-                   "I'll check on the contact number and get back to you shortly."]
+    assert out == ["Thank you for waiting - the booking can go under Kostyk."]  # the phone had its holding line
     e.brain.push(D("And the number is 07700 900123.", intent="asks_info", manager_agreed=True))
     said = restatements(e.handle(Event("owner_answer", key="phone", text="+44 7700 900123")))
     assert len(said) == 1  # the phone in another format is not added twice: the restatement carries it
