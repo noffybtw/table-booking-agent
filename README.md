@@ -63,6 +63,8 @@ When the manager sends a voice note, the reply is a voice note with the same tex
 
 ## Logs
 
+The real conversation with @vlad_dev_7: decision log [docs/decision-log.md](docs/decision-log.md), transcript [docs/transcript.png](docs/transcript.png).
+
 `decisions.md` has one line per message, written by the agent as it runs (these lines are from `--mode sim --scenario name_phone`):
 
 ```
