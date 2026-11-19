@@ -64,10 +64,15 @@ def manager_asked(key: str, manager_texts: list[str]) -> bool:
     return rx is None or any(rx.search(t) for t in manager_texts)
 
 
-# a sentence that asks for something: a question, "please", "can I take", "could you give", "I'll need"
-REQUEST_RE = re.compile(r"\?|\bplease\b|\b(?:can|could|may) (?:I|we) (?:take|have|get|grab|put|ask)\b|"
+# a sentence that asks for something: a question, "please" (not "please note"), "pls", "can I take", "could you give",
+# "I'll need" (not "I need to check"), "leave me", "and the name is...", or one that opens with what/which/whose/
+# under/name/phone ("Sure, what's the name")
+REQUEST_RE = re.compile(r"\?|\bplease\b(?! note\b)|\bpl[sz]\b|\b(?:can|could|may) (?:I|we) (?:take|have|get|grab|put|ask)\b|"
                         r"\b(?:can|could|would) you (?:give|send|share|tell|provide|leave)\b|\bunder what name\b|"
-                        r"\bcontact number\b|\b(?:I|we)(?:'ll| will|'d| would)? need\b", re.I)
+                        r"\bcontact number\b|\b(?:I|we)(?:'ll| will|'d| would)? need\b(?! to (?:check|see|look|find)\b)|"
+                        r"\bleave (?:me|us)\b|\bname\b.{0,30}\b(?:is|be)\W*$|"
+                        r"^\W*(?:(?:and|ok|okay|sure|great|lovely|so)\b\W*)*(?:what|which|whose|under|name|phone|mobile|"
+                        r"number|contact)\b", re.I)
 OWN_NAME_RE = re.compile(r"\b(?:my|our) name(?:'s|\s+is)\b", re.I)
 
 
@@ -429,7 +434,7 @@ FIELD_RE = {
     "guest_name": re.compile(r"(?<!restaurant's )(?<!restaurant )\bname\b(?! of (?:the|your) restaurant)|\bunder (?:what|which|whose)\b|"
                              r"\bwho(?:'s| is) (?:it|the booking|the table) for\b", re.I),
     "phone": re.compile(r"\bphone\b|\bmobile\b|\btelephone\b|\bcontact (?:number|details)\b|\b(?:a|the|your|best) number\b"
-                        r"(?! of\b)|\bnumber (?:to|for|on)\b(?! (?:two|people|guests))", re.I),
+                        r"(?! of\b)|\bnumber (?:to|for|on)\b(?! (?:two|people|guests))|\btel\b|\bname and (?:a |the |your )?number\b", re.I),
     "email": re.compile(r"\be-?mail\b", re.I),
     "occasion": re.compile(r"\boccasion\b|\bcelebrat", re.I),
     "allergies": re.compile(r"\ballerg|\bdiet", re.I),

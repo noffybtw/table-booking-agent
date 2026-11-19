@@ -97,21 +97,37 @@ def test_name_only_from_the_profile_goes_with_the_confirm_question():
     assert e.facts.get("phone") is None  # not asked, not given
 
 
-@pytest.mark.parametrize("manager", ["Hi, my name is Vlad. Let me check 17:00 for you.",
-                                     "No problem, table number 12 is free at 17:00.", "Sure. For what number of people?",
-                                     "I'll contact the chef and come back."])
+@pytest.mark.parametrize("manager", [
+    "Hi, my name is Vlad. Let me check 17:00 for you.", "No problem, table number 12 is free at 17:00.",
+    "Sure. For what number of people?", "I'll contact the chef and come back.", "Is 17:00 for 2 the right number?",
+    "We have a number of tables free at 17:00, any preference?",
+    "Please note our phone lines are down today, but 17:00 is fine.",
+    "Could you give me a minute? I need to check the name on another booking.",
+    "What's the name of the restaurant you're after? We have two.",
+    "Can I take your order for drinks in advance? Number 5 on the menu is popular.",
+])
 def test_profile_field_not_given_when_the_manager_does_not_ask(manager):
-    e = with_profile(PROFILE, D("Thank you.", intent="question", needs_owner=["guest_name", "phone"]))
-    acts = e.handle(Event("manager_message", text=manager))
-    out = " ".join(sends(acts))
-    assert "Yaroslav" not in out and "900123" not in out and not [a for a in acts if isinstance(a, AskOwner)]
-    assert e.facts.get("guest_name") is None and e.facts.get("phone") is None
+    for d in (D("Thank you.", intent="question", needs_owner=["guest_name", "phone"]), D("Thank you.", intent="question")):
+        e = with_profile(PROFILE, d)
+        acts = e.handle(Event("manager_message", text=manager))
+        out = " ".join(sends(acts))
+        assert "Yaroslav" not in out and "900123" not in out
+        assert e.facts.get("guest_name") is None and e.facts.get("phone") is None
+        # the model naming the fields: the owner is asked as without a profile; naming none: nothing is asked
+        assert bool([a for a in acts if isinstance(a, AskOwner)]) == bool(d.get("needs_owner"))
 
 
 @pytest.mark.parametrize("manager,keys", [
     ("What name should I put it under?", ["guest_name"]), ("Could I take a contact number?", ["phone"]),
     ("Name and phone number, please.", ["guest_name", "phone"]),
     ("And a number in case we need to reach you?", ["phone"]),
+    ("what name should i put it under", ["guest_name"]), ("Name for the booking", ["guest_name"]),
+    ("name and phone pls", ["guest_name", "phone"]), ("Under which name", ["guest_name"]),
+    ("Whose name is it under", ["guest_name"]), ("I need a name and a mobile", ["guest_name", "phone"]),
+    ("And the name is", ["guest_name"]), ("ok 17:00 booked. name and number", ["guest_name", "phone"]),
+    ("Sure, what's the name", ["guest_name"]), ("Tel?", ["phone"]),
+    ("Lovely, and the name for the reservation would be...", ["guest_name"]),
+    ("Leave me a mobile and you're all set.", ["phone"]),
 ])
 def test_profile_field_given_when_the_manager_asks(manager, keys):
     e = with_profile(PROFILE, D("Let me just check that.", action="ask_owner", intent="asks_info",
@@ -120,6 +136,23 @@ def test_profile_field_given_when_the_manager_asks(manager, keys):
     out = " ".join(sends(acts))
     assert ("Yaroslav" in out) == ("guest_name" in keys) and ("+44 7700 900123" in out) == ("phone" in keys)
     assert not [a for a in acts if isinstance(a, AskOwner)]
+
+
+def test_profile_field_not_recognised_as_asked_goes_to_the_owner():
+    # "Hello? the name": not given from the profile, so the owner is asked as without a profile, never a holding line
+    # with nobody asked
+    e = with_profile(PROFILE, D("Let me just check that.", action="ask_owner", intent="asks_info",
+                                needs_owner=["guest_name"]))
+    acts = e.handle(Event("manager_message", text="Hello? the name"))
+    assert [a.key for a in acts if isinstance(a, AskOwner)] == ["guest_name"]
+    assert "Yaroslav" not in " ".join(sends(acts))
+
+
+def test_chat_style_name_request_with_the_agreement_is_answered():
+    e = with_profile(PROFILE, D("Let me just check that.", action="ask_owner", intent="asks_info",
+                                needs_owner=["guest_name"], manager_agreed=True))
+    out = " ".join(sends(e.handle(Event("manager_message", text="Yes 17:00 is fine. what name should i put it under"))))
+    assert "Yaroslav" in out and e.facts.get("guest_name") == "Yaroslav"
 
 
 def test_profile_field_not_given_when_the_model_does_not_want_it():

@@ -472,9 +472,6 @@ class Engine:
             k = policy.norm_key(k)
             if k in needs or (k == "alternative_time" and window_took):
                 continue
-            if self.profile and k in DETAIL_KEYS and self.profile.get(k) and not f.get(k):
-                notes.append(f"not giving or asking {k}: in the owner's profile, the manager did not ask for it")
-                continue
             if not policy.manager_asked(k, self.manager_texts):
                 notes.append(f"not asking the owner for {k}: the manager did not ask for it")
                 continue
