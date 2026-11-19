@@ -113,3 +113,16 @@ def test_confirm_question_and_restatement_after_six_thirty_say_18_30():
     acts = e.handle(Event("manager_message", text=f"It's {REST}."))
     said = restatements(acts)
     assert len(said) == 1 and "18:30" in said[0] and e.n_restated == 1
+
+
+def test_accepting_the_other_time_tells_the_manager_it_works_when_the_restaurant_is_unknown():
+    # the real model often takes the manager's offer plus the owner's yes as the agreement on the owner turn
+    e, _ = offered("Sorry, 17:00 is full. I can do 18.30", "18.30")
+    e.brain.push(D("Thank you. Could I just take the restaurant's name for my note?", action="final_restatement",
+                   intent="agreed", manager_agreed=True))
+    acts = e.handle(Event("owner_answer", key="alternative_time", text="так"))
+    sent = [a.text for a in acts if a.__class__.__name__.startswith("Send")]
+    assert len(sent) == 1 and "18:30 works for us" in sent[0] and "restaurant's name" in sent[0]
+    e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True, restaurant_name=REST))
+    said = restatements(e.handle(Event("manager_message", text=f"It's {REST}.")))
+    assert len(said) == 1 and "18:30" in said[0] and e.n_restated == 1

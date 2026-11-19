@@ -474,7 +474,12 @@ class Engine:
                 return acts
             if "restaurant_name" in restate.missing(f):
                 lead = reply or self._detail_line()
-                if lead and said is None and not policy.asks_restaurant(lead) and not self.asked_restaurant:
+                if said is None and self.answered == "alternative_time" and f.get("time") not in (reply or ""):
+                    # the owner took the other time: the manager hears it works, not only the restaurant question
+                    took = f"Thank you, {f.get('time')} works for us. {ASK_RESTAURANT_ALSO}"
+                    acts += self._say(took, event, "owner accepted the other time; restaurant name unknown, asking "
+                                      "before the restatement", fallback=took, voice=voice)
+                elif lead and said is None and not policy.asks_restaurant(lead) and not self.asked_restaurant:
                     # the owner's answer (a name, a phone) goes to the manager together with the question
                     acts += self._say(f"{lead} {ASK_RESTAURANT_ALSO}", event,
                                       "owner answered; restaurant name unknown, asking before the restatement",
