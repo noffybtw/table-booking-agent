@@ -21,6 +21,7 @@ STT_MODEL = "whisper-large-v3"
 EDGE_VOICE = "en-US-BrianMultilingualNeural"
 ORPHEUS_MODEL = "canopylabs/orpheus-v1-english"
 ORPHEUS_VOICE = "daniel"
+ORPHEUS_FIRST = True   # Orpheus first, edge-tts as the fallback
 ORPHEUS_MAX = 200
 
 
@@ -63,11 +64,12 @@ async def edge_save(text: str, voice: str, path: Path) -> None:
 class Voice:
     def __init__(self, api_key: str | None, out_dir: Path, http_client=None,
                  edge: Callable[[str, str, Path], Awaitable[None]] = edge_save, edge_voice: str = EDGE_VOICE,
-                 orpheus_voice: str = ORPHEUS_VOICE):
+                 orpheus_voice: str = ORPHEUS_VOICE, orpheus_first: bool = ORPHEUS_FIRST):
         self.client = (OpenAI(api_key=api_key, base_url=GROQ_BASE_URL, timeout=30, max_retries=1,
                               http_client=http_client) if api_key else None)
         self.dir = Path(out_dir)
         self.edge, self.edge_voice, self.orpheus_voice = edge, edge_voice, orpheus_voice
+        self.orpheus_first = orpheus_first
         self.seq = itertools.count(1)
         self.last: dict = {}
 
@@ -85,24 +87,25 @@ class Voice:
         return (getattr(r, "text", "") or "").strip(), getattr(r, "language", None)
 
     async def synthesize(self, text: str) -> str | None:
-        """OGG/Opus path, or None when both engines fail (the caller then sends text)."""
+        """OGG/Opus path, or None when both engines fail (the caller then sends text). Orpheus goes first when
+        ORPHEUS_FIRST (it sounds more like a person; it needs the model's terms accepted in the Groq console, and
+        until then it fails at once and edge-tts speaks)."""
         self.dir.mkdir(parents=True, exist_ok=True)
         n = next(self.seq)
         errors = []
-        try:
-            mp3 = self.dir / f"out-{n}.mp3"
-            await self.edge(text, self.edge_voice, mp3)
-            ogg = await to_ogg(mp3, self.dir / f"out-{n}.ogg")
-            self.last = {"tts": f"edge-tts {self.edge_voice}"}
-            return str(ogg)
-        except Exception as e:  # noqa: BLE001 - any failure moves on to the fallback
-            errors.append(f"edge-tts: {type(e).__name__}: {str(e)[:100]}")
-        try:
-            ogg = await self._orpheus(text, n)
-            self.last = {"tts": f"{ORPHEUS_MODEL} {self.orpheus_voice}", "errors": errors}
-            return str(ogg)
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"orpheus: {type(e).__name__}: {str(e)[:100]}")
+        for engine in (("orpheus", "edge") if self.orpheus_first else ("edge", "orpheus")):
+            try:
+                if engine == "edge":
+                    mp3 = self.dir / f"out-{n}.mp3"
+                    await self.edge(text, self.edge_voice, mp3)
+                    ogg = await to_ogg(mp3, self.dir / f"out-{n}.ogg")
+                    self.last = {"tts": f"edge-tts {self.edge_voice}", **({"errors": errors} if errors else {})}
+                else:
+                    ogg = await self._orpheus(text, n)
+                    self.last = {"tts": f"{ORPHEUS_MODEL} {self.orpheus_voice}", "errors": errors}
+                return str(ogg)
+            except Exception as e:  # noqa: BLE001 - any failure moves on to the other engine
+                errors.append(f"{'edge-tts' if engine == 'edge' else 'orpheus'}: {type(e).__name__}: {str(e)[:100]}")
         self.last = {"tts": None, "errors": errors}
         return None
 
