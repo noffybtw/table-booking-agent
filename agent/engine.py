@@ -27,6 +27,8 @@ FOLLOW_UP_2 = "Hello again. Whenever you have a moment, I'd be grateful for a qu
 BAD_VOICE = "Sorry, I couldn't play that voice note. Could you type it, please?"
 TECH_HOLD = "Thank you - give me just a moment, please."
 CLOSING = "Thank you very much, have a lovely day."
+ASK_RESTAURANT_ALSO = "Could I also take the restaurant's name for my note?"
+DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
 PLEASANTRY = ("closing", "greeting")
 
 MANAGER_LABEL = {"text": "MANAGER", "voice": "MANAGER (voice note, transcribed)", "media": "MANAGER"}
@@ -49,6 +51,7 @@ class Engine:
         self.agreed = False
         self.asked_restaurant = False
         self.restated_sig: tuple | None = None
+        self.n_restated = 0
         self.closed = False                  # one closing reply went out after the restatement
         self.n_out = self.n_in = self.turn = 0
         self.followups = 0
@@ -233,6 +236,18 @@ class Engine:
             if self.pending[key].get("apologised"):
                 return []
             self.pending[key]["apologised"] = True
+            if key in DETAIL_KEYS and self.agreed and self.restated_sig is None:
+                text = restate.build(self.facts, variant=self.turn)
+                if text:
+                    # the owner is silent: restate without the detail, keep the question open for a late answer
+                    missing = [k for k in DETAIL_KEYS if k in self.pending]
+                    for k in missing:
+                        self.pending[k]["apologised"] = True
+                    names = ", ".join(policy.KEY_NAMES_RU.get(k, k) for k in missing)
+                    return ([Log("decision", {"understood": "-", "decided": f"owner has not answered {', '.join(missing)} "
+                                              "for 10 minutes; restatement without it"})]
+                            + self._restate(text, restate.signature(self.facts))
+                            + [NotifyOwner(policy.RESTATED_WITHOUT_RU.format(keys=names))])
             text = SORRY_WAIT
             if key in policy.OPTIONAL_KEYS and self.facts.get("guest_name"):
                 text += NAME_ONLY.format(name=self.facts.get("guest_name"))
@@ -341,6 +356,11 @@ class Engine:
         last = self.manager_texts[-1] if self.manager_texts else ""
         sig = restate.signature(f)
         restate_due = self.agreed and (self.restated_sig is None or (self.phase == CONFIRMED and sig != self.restated_sig))
+        # one restatement: while a name or phone the manager asked for is with the owner, only a holding line goes
+        waiting = [k for k in DETAIL_KEYS if k in new_keys or k in self.pending]
+        hold_restatement = restate_due and self.restated_sig is None and bool(waiting)
+        if hold_restatement:
+            notes.append(f"manager agreed; the restatement waits for {', '.join(waiting)} from the owner")
         quiet = self._pleasantry(d, said, new_keys, restate_due)
         if quiet:
             notes.append(quiet)
@@ -359,15 +379,25 @@ class Engine:
             return acts
 
         reply = d.reply.strip()
+        if hold_restatement:
+            acts += self._say(reply or (HOLD if new_keys else STILL_CHECKING), event,
+                              f"holding line; the restatement goes once {', '.join(waiting)} is back", fallback=HOLD,
+                              voice=voice)
+            return acts
         if restate_due:
-            text = restate.build(f, variant=self.turn, correction=self.restated_sig is not None)
+            text = restate.build(f, variant=self.turn, correction=restate.is_correction(self.restated_sig, sig))
             if text:
                 acts += self._restate(text, sig)
                 if new_keys and reply:
                     acts += self._say(reply, event, "holding line for the owner question", fallback=HOLD)
                 return acts
             if "restaurant_name" in restate.missing(f):
-                if reply and policy.asks_restaurant(reply):
+                if reply and said is None and not policy.asks_restaurant(reply) and not self.asked_restaurant:
+                    # the owner's answer (a name, a phone) goes to the manager together with the question
+                    acts += self._say(f"{reply} {ASK_RESTAURANT_ALSO}", event,
+                                      "owner answered; restaurant name unknown, asking before the restatement",
+                                      fallback=restate.ASK_RESTAURANT, voice=voice)
+                elif reply and policy.asks_restaurant(reply):
                     acts += self._say(reply, event, "agreed; restaurant name unknown, asking before the restatement",
                                       fallback=restate.ASK_RESTAURANT, voice=voice)
                 elif not self.asked_restaurant:
@@ -422,6 +452,7 @@ class Engine:
             return [Log("guard", {"text": text, "problems": probs, "result": "restatement blocked"}),
                     NotifyOwner(f"Финальное подтверждение не прошло проверку: {'; '.join(probs)}")]
         self.restated_sig = sig
+        self.n_restated += 1
         self.phase = CONFIRMED
         self.closed = False  # a corrected restatement may get its own thank-you
         self.gen["silence"] += 1

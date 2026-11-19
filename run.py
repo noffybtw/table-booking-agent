@@ -96,7 +96,8 @@ def cmd_sim(args, secrets) -> int:
         if llm == "fake" and brain.queue:
             problems.append(f"{len(brain.queue)} scripted decision(s) not used")
         status = "ok" if not problems else f"{len(problems)} problem(s)"
-        print(f"-> {name}: {status}; log {rd.relative_to(RUNS_DIR.parent)}/decisions.md")
+        print(f"-> {name}: {status}; restatements {res.restatements}, correction wording "
+              f"{'yes' if res.correction_wording else 'no'}; log {rd.relative_to(RUNS_DIR.parent)}/decisions.md")
         for p in problems:
             print(f"   ! {p}")
         print()

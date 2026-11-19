@@ -45,6 +45,17 @@ def build(facts: FactStore, variant: int = 0, correction: bool = False) -> str |
     return text
 
 
+def is_correction(prev: tuple | None, sig: tuple) -> bool:
+    """A restatement corrects the last one only if time, date, party size or a named restaurant changed; one that
+    just adds a name, a condition or the restaurant's name for the first time is not a correction."""
+    if prev is None:
+        return False
+    for i, k in enumerate(REQUIRED):
+        if prev[i] != sig[i] and not (k == "restaurant_name" and prev[i] is None):
+            return True
+    return False
+
+
 def signature(facts: FactStore) -> tuple:
     """Values a restatement carries; a change after CONFIRMED means a corrected restatement is due."""
     return tuple(facts.get(k) for k in REQUIRED + ("guest_name", "condition"))

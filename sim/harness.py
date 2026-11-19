@@ -77,11 +77,22 @@ class SimResult:
 
     @property
     def problems(self) -> list[str]:
-        return [f"step {i} ({s.step.kind}): {p}" for i, s in enumerate(self.steps) for p in s.problems]
+        return ([f"step {i} ({s.step.kind}): {p}" for i, s in enumerate(self.steps) for p in s.problems]
+                + self.run_problems)
+
+    run_problems: list[str] = field(default_factory=list)
 
     @property
     def all_sent(self) -> list[tuple[str, str]]:
         return [x for s in self.steps for x in s.sent]
+
+    @property
+    def restatements(self) -> int:
+        return self.engine.n_restated
+
+    @property
+    def correction_wording(self) -> bool:
+        return any("correction" in t.lower() for _, t in self.all_sent)
 
 
 def check(step: Step, res: StepResult, scripted: bool = True) -> list[str]:
@@ -177,7 +188,10 @@ async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], N
         res.problems = check(step, res, scripted)
         results.append(res)
     log.close()
-    return SimResult(scn, Path(run_dir), results, engine, brain)
+    res = SimResult(scn, Path(run_dir), results, engine, brain)
+    if scn.restatements is not None and res.restatements != scn.restatements:
+        res.run_problems.append(f"expected {scn.restatements} restatement(s), got {res.restatements}")
+    return res
 
 
 def run(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], None] = print, scripted: bool = True) -> SimResult:

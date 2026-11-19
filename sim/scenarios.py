@@ -30,6 +30,7 @@ class Scenario:
     title: str
     steps: list[Step]
     now: str = NOW
+    restatements: int | None = None  # checked over the whole run, with any model
 
 
 def opening(**expect) -> Step:
@@ -108,6 +109,17 @@ SCENARIOS = [
         M(f"Perfect, you're all booked in at {REST}.", D(**AGREE, restaurant_name=REST),
           **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"]}),
     ]),
+    Scenario("agreed_name", "\"Yes, 17:00 is fine. What name?\": one holding line, one restatement after the name", [
+        opening(),
+        M("Yes, 17:00 is fine. What name?",
+          D("Lovely, thank you. Let me just check the name and come back to you.", action="ask_owner",
+            intent="agreed", manager_agreed=True, needs_owner=["guest_name"], decision="agreed; name not known"),
+          sends=1, voice=False, asks=["guest_name"], never=["To confirm", "correction", "Yaroslav"]),
+        O("Yaroslav", D("Thank you for waiting - it's under Yaroslav.", intent="asks_info", guest_name="Yaroslav"),
+          key="guest_name", sends=1, says=["Yaroslav", "restaurant"], never=["correction"]),
+        M(f"It's {REST}.", D("Thank you!", intent="question", restaurant_name=REST),
+          **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"], "never": ["correction"]}),
+    ], restatements=1),
     Scenario("owner_slow", "the owner does not answer: one reminder, one apology to the manager, nothing invented", [
         opening(),
         M("Morning! 17:00 for two is fine. Could I take a contact number?",

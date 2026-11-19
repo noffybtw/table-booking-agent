@@ -55,6 +55,7 @@ NO_RE = re.compile(r"^\s*(нет|не подходит|только|ні|не п
 # a yes that also says no ("ок, но только 17:00") is not a yes
 NOT_RE = re.compile(r"\b(нет|не|только|ні|тільки|лише|no|not|only)\b", re.I)
 TIME_AGAIN_RU = "Не понял ответ. Нажми кнопку."
+RESTATED_WITHOUT_RU = "Ответа нет 10 минут: подтверждение ушло менеджеру без поля «{keys}». Если ответишь, агент передаст."
 
 
 def manager_asked(key: str, manager_texts: list[str]) -> bool:
