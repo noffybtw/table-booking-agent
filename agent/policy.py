@@ -1,6 +1,7 @@
 """Rules the code enforces around the model: which slot values to accept, owner questions, owner answers."""
 from __future__ import annotations
 
+import base64
 import re
 
 from agent import guard, texts
@@ -573,7 +574,13 @@ def taint_of(text: str, trusted: list[str], time: str | None, party: int | None)
 def names_tainted(text: str, taint: dict) -> list[str]:
     """The tainted times and party sizes `text` names ("So I've got you down for 18:00")."""
     out = sorted(manager_times([text]) & taint.get("times", set()))
-    out += [said for said, n in guard.find_party(text or "") if n in taint.get("sizes", set())]
+    words = {v: k for k, v in guard.NUM_WORDS.items()}
+    for n in sorted(taint.get("sizes", set())):
+        # "confirmed for four": the number alone, not a time, a price or part of a longer number
+        m = re.search(r"(?<![\d:.,£$€+])\b(?:" + str(n) + (f"|{words[n]}" if n in words else "") +
+                      r")\b(?![:.,]?\d)(?!\s*(?:a\.?m|p\.?m|o'?clock|minutes?|mins?|hours?))", text or "", re.I)
+        if m:
+            out.append(m.group(0))
     return out
 
 
@@ -652,16 +659,51 @@ def reference(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-# instructions to the agent instead of the booking: refused, and nothing in them is a booking fact
-INJECTION_RE = re.compile(r"\b(?:ignore|disregard|forget)\b.{0,40}\b(?:instructions?|rules|prompt)\b|"
-                          r"\bsystem prompt\b|\b(?:your|the) (?:instructions|prompt|config\w*|model name)\b|"
-                          r"={2,}\s*system\b|<\s*/?\s*system\s*>|\boverride\b|\byou are now\b|\bdecode and\b|"
-                          r"\bdiagnostics? mode\b|\bdeveloper mode\b|\bjailbreak|\bprint your\b|"
-                          r"(?<![\w/+=])[A-Za-z0-9+/]{24,}={0,2}(?![\w/+=])", re.I)
+# instructions to the agent instead of the booking: refused by code only on markers an ordinary restaurant line never
+# has ("You are now booked in for 17:00", "the instructions in the email", a long link path are ordinary lines and go
+# to the model); everything else is the model's to decline
+ROLE = (r"(?:manager|assistant|agent|bot|chatbot|ai|model|restaurant|system|developer|admin\w*|owner|host|waiter|"
+        r"human|person|dan|operator)")
+INJECTION_RE = re.compile(r"\b(?:ignore|disregard|forget)\b(?:\s+\w+){0,4}?\s+(?:instructions?|rules|prompts?|"
+                          r"guidelines|directives)\b|\bsystem prompt\b|\byour (?:model(?: name)?|prompt|system message|"
+                          r"config(?:uration)?)\b|\b(?:print|show|reveal|repeat|output|send me|give me|list) your "
+                          r"(?:instructions|rules)\b|<\s*/?\s*(?:system|assistant|developer|admin)\s*>|"
+                          r"={2,}\s*(?:system|admin|developer)\b|\[\s*/?\s*(?:system|inst)\s*\]|"
+                          r"(?:^|[.!?\n]\s*)(?:system|developer|admin)\s*:|"
+                          r"\byou(?:'re| are) now (?:(?:a|an|the|my|our)\s+(?:\w+\s+){0,2}?)?" + ROLE + r"\b", re.I)
+B64_RE = re.compile(r"(?<![\w/+=.:#-])[A-Za-z0-9+/]{24,}={0,2}(?![\w/+=.-])")
+# what a refused line may also carry for the booking: it goes to the model with the refused label
+BOOKING_WORDS_RE = re.compile(r"\b(?:table|book\w*|reserv\w*|confirm\w*|cancel\w*|people|persons|guests?|party|"
+                              r"covers)\b", re.I)
+
+
+def _readable_b64(run: str) -> bool:
+    """A base64 run that decodes to words ("SWdub3JlIGFsbCBwcmV2aW91cw==" is "Ignore all previous"); a reference
+    or a code like "OLIVEROOM20261119T1700PARTY2X" decodes to noise."""
+    try:
+        raw = base64.b64decode(run + "=" * (-len(run) % 4), validate=True)
+        text = raw.decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    letters = sum(ch.isalpha() or ch in " .,!?'-:" for ch in text)
+    return " " in text and letters >= 0.9 * len(text)
 
 
 def injection(text: str) -> bool:
-    return bool(INJECTION_RE.search(text or ""))
+    text = (text or "").replace("\u2019", "'")
+    if INJECTION_RE.search(text):
+        return True
+    for m in B64_RE.finditer(text):
+        token = next((w for w in text.split() if m.group(0) in w), "")
+        if "/" in token.strip("/") and re.search(r"\w\.\w", token) or "://" in token or "www." in token:
+            continue  # a link with a long path
+        if _readable_b64(m.group(0)):
+            return True
+    return False
+
+
+def booking_words(text: str) -> bool:
+    return bool(BOOKING_WORDS_RE.search(text or "") or guard.find_times(text or "") or guard.find_party(text or ""))
 
 
 # the agent writes as the one booking: no "assistant", no third person, except when the manager asks if it is a bot
