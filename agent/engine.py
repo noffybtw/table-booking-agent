@@ -405,7 +405,7 @@ class Engine:
         if not agreed_now and self.confirm_asked and said is not None and policy.manager_yes(" ".join(said), f.get("time")):
             agreed_now = True
             notes.append("a plain yes to the confirm question: agreed")
-        if said is not None:
+        if said is not None and not policy.manager_stall(" ".join(said), f.get("time")):
             self.confirm_asked = False
         if agreed_now and (time_open or "alternative_time" in self.pending):
             agreed_now = False

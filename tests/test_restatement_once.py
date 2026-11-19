@@ -138,6 +138,32 @@ def test_manager_plain_yes():
         assert not policy.manager_yes(t, "17:00"), t
 
 
+def test_a_stalling_answer_to_the_confirm_question_is_not_a_yes():
+    from agent import policy
+    for t in ("Ok, let me check", "Okay, one moment please", "Yes, one moment", "Great, let me have a look",
+              "Sure, give me a minute", "Right, bear with me", "Perfect, I'll check the diary",
+              "Fine, we will let you know", "Yes, hang on", "Ok, I\u2019ll get back to you"):
+        assert not policy.manager_yes(t, "17:00"), t
+    for t in ("Yes", "Yes, that's fine", "Yes, all confirmed", "Confirmed", "That's fine, see you then",
+              "Great, thanks, see you at 17:00 then!"):
+        assert policy.manager_yes(t, "17:00"), t
+    # words outside the short list are left to the model
+    assert not policy.manager_yes("Yes, the chef says so", "17:00")
+
+
+def test_ok_let_me_check_after_the_confirm_question_sends_no_restatement():
+    e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
+    e.handle(Event("manager_message", text="Hello. What name is it under?"))
+    e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk"))
+    e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
+    e.brain.push(D("Of course, thank you.", intent="question"))
+    acts = e.handle(Event("manager_message", text="Ok, let me check"))
+    assert restatements(acts) == [] and not e.agreed and e.phase == "open"
+    e.brain.push(D("Thank you!", intent="closing"))
+    said = restatements(e.handle(Event("manager_message", text="Yes, all booked")))
+    assert len(said) == 1 and "under the name Kostyk" in said[0] and e.n_restated == 1
+
+
 def silence(e):
     return e.handle(Event("timer", text="silence", gen=e.gen["silence"]))
 

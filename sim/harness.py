@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from agent import clock
+from agent import texts as texts_
 from agent.brain import FakeBrain
 from agent.engine import Engine
 from agent.events import Event, Log, Msg, NotifyOwner, SendVoice, manager_event
@@ -119,6 +120,8 @@ def check(step: Step, res: StepResult, scripted: bool = True) -> list[str]:
     if e.get("blocked") and scripted and not any(isinstance(a, Log) and a.kind == "guard" and a.data["problems"]
                                     for a in res.acts):
         probs.append("expected the guard to block a draft")
+    if e.get("booked") is False and any(n.startswith(texts_.t("booked", text="")) for n in res.notes):
+        probs.append(f"the owner was told the booking is confirmed: {res.notes!r}")
     if e.get("notify") and not res.notes:
         probs.append("expected a note to the owner")
     if e.get("english") and any("Ѐ" <= ch <= "ӿ" for ch in texts):

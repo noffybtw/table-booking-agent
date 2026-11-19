@@ -228,15 +228,49 @@ MANAGER_YES_RE = re.compile(r"^\s*(?:(?:ok|okay|yes|yep|yeah|yup|sure|correct|co
                             r"that's correct|that's fine|right|fine|perfect|great|lovely|absolutely|definitely|"
                             r"indeed|of course|all good|done|booked)\b|\U0001F44D)", re.I)
 MANAGER_NOT_RE = re.compile(r"\b(?:no|not|sorry|but|unfortunately|actually|wait|hold on|only|instead)\b|n't", re.I)
+# "Ok, let me check" or "Yes, one moment" is the manager stalling, not agreeing
+MANAGER_STALL_RE = re.compile(r"\b(?:let me|will|check\w*|moments?|minutes?|secs?|seconds?|look\w*|see(?! you\b)|"
+                              r"bear with|hang on|hold on|get back|let you know|wait\w*)\b|'ll\b", re.I)
+# after the yes-words only these may stay ("Yes, that's fine, see you then"); anything else is the model's call.
+# "§" stands for the booking time, written any way.
+MANAGER_YES_WORDS = ("ok", "okay", "yes", "yep", "yeah", "yup", "sure", "correct", "confirmed", "all confirmed",
+                     "that's right", "that's correct", "that's fine", "right", "fine", "perfect", "great", "lovely",
+                     "absolutely", "definitely", "indeed", "of course", "all good", "done", "booked")
+MANAGER_YES_ALLOW = ("that's", "that is", "it is", "all", "all good", "confirmed", "booked", "fine", "good", "great",
+                     "perfect", "lovely", "thanks", "thank you", "cheers", "see you", "then", "the time", "for two",
+                     "at §", "§")
+_YES_PHRASES = sorted({tuple(p.split()) for p in MANAGER_YES_WORDS + MANAGER_YES_ALLOW}, key=len, reverse=True)
+
+
+def _only_yes_words(text: str, time: str | None) -> bool:
+    t = text.lower().replace("\u2019", "'").replace("\U0001F44D", " ")
+    for said, cands in guard.find_times(text):
+        if time in cands:
+            t = t.replace(said.lower(), " § ")
+    words = re.findall(r"[a-z']+|§", t)
+    i = 0
+    while i < len(words):
+        step = next((len(p) for p in _YES_PHRASES if tuple(words[i:i + len(p)]) == p), 0)
+        if not step:
+            return False
+        i += step
+    return True
 
 
 def manager_yes(text: str, time: str | None) -> bool:
     t = (text or "").strip()
-    if not t or "?" in t or len(t.split()) > 12 or MANAGER_NOT_RE.search(t):
+    if not t or "?" in t or len(t.split()) > 12 or MANAGER_NOT_RE.search(t) or MANAGER_STALL_RE.search(t):
         return False
     if any(time not in cands for _, cands in guard.find_times(t)):
         return False
-    return bool(MANAGER_YES_RE.match(t))
+    return bool(MANAGER_YES_RE.match(t)) and _only_yes_words(t, time)
+
+
+def manager_stall(text: str, time: str | None) -> bool:
+    """"Ok, let me check" with no question, no "but" and no other time: the confirm question still stands."""
+    t = (text or "").strip()
+    return (bool(MANAGER_STALL_RE.search(t)) and "?" not in t and not MANAGER_NOT_RE.search(t)
+            and all(time in cands for _, cands in guard.find_times(t)))
 
 
 ASKS_RESTAURANT_RE = re.compile(r"restaurant'?s name|name of (?:the|your) restaurant|which restaurant|"
