@@ -193,11 +193,11 @@ class Engine:
                         NotifyOwner(policy.which_question(list(self.pending)))]
         else:
             # nothing is asked: "ну як там?" must not start a message to the manager. The owner gets the status;
-            # a note of 3 words or more waits in the facts for the next model turn, "дякую" or "ок" does not.
-            if len(text.split()) < 3:
+            # a note of 3 words or more waits in the facts for the next model turn, "дякую", "ок" or a question does not.
+            if len(text.split()) < 3 or "?" in text:
                 return [Log("owner_answer", {"key": "note", "text": text,
-                                             "summary": "owner message with no open question, under 3 words: not "
-                                                        "kept, status sent to the owner"}),
+                                             "summary": "owner message with no open question, under 3 words or a "
+                                                        "question: not kept, status sent to the owner"}),
                         NotifyOwner(texts.t("note_skipped", status=self.status_text()))]
             self.facts.set("owner_note", text, "owner", self.turn)
             self.transcript.append(f"OWNER (private, the manager cannot see this): {text}")

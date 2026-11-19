@@ -104,7 +104,8 @@ class RunLog:
             tail = ""
             if i == len(self._in) - 1 and (understood or decided):
                 tail = f" | understood: {short(understood, 200)} | decided: {short(decided, 300)}"
-            tail = tail.replace("{", "{{").replace("}", "}}")
+            if words:  # only a line with the manager's words is formatted; elsewhere a brace stays as it is
+                tail = tail.replace("{", "{{").replace("}", "}}")
             self.line(f"IN {what}: {text}{tail}", *words)
         self._in = []
 

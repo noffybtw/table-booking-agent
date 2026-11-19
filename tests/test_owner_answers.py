@@ -132,11 +132,14 @@ def test_stray_owner_message_gets_the_status_and_no_model_turn():
     note = [a.text for a in acts if isinstance(a, NotifyOwner)]
     assert len(note) == 1 and "Етап: розмова з менеджером. Менеджер погодився: ні. Чекаю від тебе: нічого." in note[0]
     assert "STATE" not in note[0] and "phase" not in note[0]
-    assert e.facts.get("owner_note") == "ну як там?"
+    assert e.facts.get("owner_note") is None  # a question is answered with the status, not kept as a note
+    acts = e.handle(Event("owner_answer", text="якщо що, буду вчасно"))
+    assert sends(acts) == [] and len(e.brain.calls) == 1
+    assert e.facts.get("owner_note") == "якщо що, буду вчасно"
     # the note is a known fact on the next model turn
     e.brain.push(D("Thank you, could I book a table for two today at 17:00?"))
     e.handle(Event("manager_message", text="Hello, sorry, who is this?"))
-    assert e.brain.calls[-1]["facts"]["owner_note"] == "ну як там?"
+    assert e.brain.calls[-1]["facts"]["owner_note"] == "якщо що, буду вчасно"
 
 
 def test_a_chase_while_the_owner_is_asked_never_gets_silence():
