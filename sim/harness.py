@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -170,6 +171,7 @@ async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], N
             acts += await runner.feed(ev)
         vclock.t = target
         ev = None
+        missing = None
         if step.kind == "open":
             ev = Event("opening")
         elif step.kind == "manager":
@@ -188,9 +190,17 @@ async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], N
             ev = Event("manager_edit", messages=[Msg(step.text, step.msg_id)], text=step.text, old_text=step.old,
                        msg_id=step.msg_id)
         elif step.kind == "owner":
-            echo(f"  {clock.hhmm(vclock(), True)}   [owner answers{' ' + step.key if step.key else ''}] "
-                 f"{step.text or step.value}")
-            ev = Event("owner_answer", key=step.key, text=step.text, value=step.value, contact=step.contact)
+            key = step.key
+            if key and key.startswith("~"):
+                # "~diet|allerg": the open question whose key matches, whatever key the model chose
+                key = next((k for k in engine.pending if re.search(key[1:], k)), None)
+            if step.key and key is None:
+                echo(f"  {clock.hhmm(vclock(), True)}   [owner: no open question matches {step.key[1:]!r}, skipped]")
+                missing = f"no open owner question matches {step.key[1:]!r} (open: {list(engine.pending)})"
+            else:
+                echo(f"  {clock.hhmm(vclock(), True)}   [owner answers{' ' + key if key else ''}] "
+                     f"{step.text or step.value}")
+                ev = Event("owner_answer", key=key, text=step.text, value=step.value, contact=step.contact)
         elif step.kind == "command":
             echo(f"  {clock.hhmm(vclock(), True)}   [owner command] /{step.text}")
             ev = Event("owner_command", text=step.text)
@@ -200,7 +210,7 @@ async def run_async(scn: Scenario, brain, run_dir: Path, echo: Callable[[str], N
             acts += await runner.feed(ev)
         res = StepResult(step, transport.out[n_out:], [a[0] for a in owner.asked[n_ask:]], owner.notes[n_note:], acts)
         res.questions = [a[1] for a in owner.asked[n_ask:]]
-        res.problems = check(step, res, scripted)
+        res.problems = check(step, res, scripted) + ([missing] if missing else [])
         results.append(res)
     log.close()
     res = SimResult(scn, Path(run_dir), results, engine, brain)
