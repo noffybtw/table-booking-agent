@@ -222,6 +222,7 @@ def test_a_restatement_that_never_went_out_is_not_confirmed_and_the_owner_gets_t
     assert not any(n.startswith("Бронь підтверджена") for n in owner.notes)
     hand = [n for n in owner.notes if "вручну" in n]
     assert len(hand) == 1 and hand[0].endswith("a table for two at 17:00 on Thursday 19 November at The Ivy.")
+    assert "бронь не підтверджена" in hand[0] and "наступне повідомлення менеджера" in hand[0]
     assert not any(line.startswith("AGENT:") and "at The Ivy" in line for line in engine.transcript)
     log_text = (tmp_path / "decisions.md").read_text()
     assert "NOT SENT" in log_text and "restatement #2 not delivered" in log_text
@@ -229,3 +230,20 @@ def test_a_restatement_that_never_went_out_is_not_confirmed_and_the_owner_gets_t
     engine.brain.push(D("Thank you!", intent="question"))
     acts = engine.handle(Event("manager_message", text="Hello? Did you get that?"))
     assert any(getattr(a, "restatement", False) for a in acts)
+
+
+def test_a_failed_corrected_restatement_tells_the_owner_the_first_one_stands(tmp_path):
+    from agent.brain import D
+    from agent.runner import Runner
+
+    engine, t, owner = restated_engine(tmp_path, fails=0)
+    assert engine.n_restated == 1 and len(t.sent) == 2
+    t.fails = 2  # the corrected one fails, its retry too
+    engine.brain.push(D("Thank you!", intent="question", restaurant_name="The Wolseley"))
+    runner = Runner(engine, t, owner, RunLog(tmp_path, lambda: clock.parse_now("2026-11-19T08:00")),
+                    SimpleNamespace(schedule=lambda s: None), send_retry=0)
+    asyncio.run(runner.feed(Event("manager_message", text="Sorry, we are The Wolseley, not The Ivy.")))
+    hand = [n for n in owner.notes if "вручну" in n]
+    assert len(hand) == 1 and hand[0].startswith("Виправлене підтвердження") and "залишається в силі" in hand[0]
+    assert "бронь не підтверджена" not in hand[0] and "at The Wolseley" in hand[0]
+    assert engine.phase == "confirmed" and engine.n_restated == 1

@@ -553,15 +553,16 @@ class Engine:
         # the runner tells the owner "booked" once the transport has delivered it
         return [Log("guard", {"text": text, "problems": [], "result": "ok"}), cls(text, why, self.n_out, restatement=True)]
 
-    def restatement_not_sent(self, text: str) -> None:
-        """The transport failed on the restatement, retry included: the booking is not confirmed, and the next turn
-        restates again."""
+    def restatement_not_sent(self, text: str) -> bool:
+        """The transport failed on the restatement, retry included: the state goes back to the last delivered one
+        and the next turn restates again. True when an earlier restatement stands (this one was a correction)."""
         sig, phase, closed = self.before_restate
         self.restated_sig, self.phase, self.closed = sig, (phase if sig else OPEN), closed
         self.n_restated -= 1
         line = f"AGENT: {text}"
         if line in self.transcript:
             del self.transcript[len(self.transcript) - 1 - self.transcript[::-1].index(line)]
+        return sig is not None
 
     def _say(self, draft: str, event: str, why: str, fallback: str | None, voice: bool = False,
              rearm: bool = True) -> list:

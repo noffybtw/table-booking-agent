@@ -150,12 +150,14 @@ class Runner:
             error = f"{type(e).__name__}: {str(e)[:160]}"
         self.log.sent(a, via, msg_id, error)
         if error and a.restatement:
-            # not delivered: the booking is not confirmed, the owner gets the exact text to send by hand
-            if self.engine:
-                self.engine.restatement_not_sent(a.text)
-            self.log.record(Log("note", {"text": f"restatement #{a.n} not delivered: the booking is not confirmed; "
-                                                 "the owner got the text to send by hand"}))
-            await self._safe(self.owner.notify(texts.t("send_by_hand", n=a.n, error=error, text=a.text)))
+            # not delivered: the last delivered state stands, the owner gets the exact text to send by hand
+            first_stands = bool(self.engine and self.engine.restatement_not_sent(a.text))
+            state = "the first restatement stands" if first_stands else "the booking is not confirmed"
+            self.log.record(Log("note", {"text": f"restatement #{a.n} not delivered: {state}; the owner got the text "
+                                                 "to send by hand, the agent sends it again on the manager's next "
+                                                 "message"}))
+            await self._safe(self.owner.notify(texts.t("send_by_hand_fix" if first_stands else "send_by_hand",
+                                                       n=a.n, error=error, text=a.text)))
         elif error:
             await self._safe(self.owner.notify(texts.t("send_failed", n=a.n, error=error)))
         if not error:
