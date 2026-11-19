@@ -108,3 +108,64 @@ def test_default_client_goes_over_ipv4():
     transport = asyncio.run(go())
     assert isinstance(transport, httpx.AsyncHTTPTransport)
     assert transport._pool._local_address == "0.0.0.0"  # binds to IPv4, so only A records are tried
+
+
+def test_a_lone_slash_or_an_empty_command_does_not_raise():
+    async def go():
+        bot, _ = make(api)
+        return [await bot.handle_update({"update_id": i, "message": {"chat": {"id": OWNER}, "text": t}})
+                for i, t in enumerate(["/", "/ ", "/@yk_booking_console_bot", "//"])]
+    assert asyncio.run(go()) == [None, None, None, None]
+
+
+def test_an_update_that_raises_is_logged_and_skipped_and_polling_goes_on():
+    notes, calls = [], []
+
+    def handler(req):
+        if req.url.path.endswith("/getUpdates"):
+            calls.append(1)
+            if len(calls) == 1:
+                return ok([{"update_id": 10, "message": {"chat": {"id": OWNER}, "text": "boom"}},
+                           {"update_id": 11, "message": {"chat": {"id": OWNER}, "text": "Kostyk"}}])
+            bot.running = False
+            return ok([])
+        return api(req)
+
+    bot, q = make(handler)
+    bot.on_note = notes.append
+    real = bot.handle_update
+
+    async def flaky(u):
+        if u["update_id"] == 10:
+            raise KeyError("message_id")
+        return await real(u)
+
+    bot.handle_update = flaky
+    asyncio.run(bot.poll())
+    assert q.qsize() == 1 and q.get_nowait().text == "Kostyk" and bot.offset == 12
+    assert len(notes) == 1 and "update 10 skipped" in notes[0] and TOKEN not in notes[0]
+
+
+def test_the_poller_is_restarted_when_it_ends():
+    notes, runs = [], []
+
+    async def go():
+        bot, q = make(api)
+        bot.on_note = notes.append
+
+        async def poll():
+            runs.append(1)
+            if len(runs) == 1:
+                raise RuntimeError("odd")
+            if len(runs) == 2:
+                return  # ended by itself
+            await q.put("polling again")
+            await bot.close()
+
+        bot.poll = poll
+        await asyncio.wait_for(bot.poll_forever(delay=0), timeout=2)
+        return q.get_nowait()
+
+    assert asyncio.run(go()) == "polling again" and len(runs) == 3
+    assert [n.split(" (")[0] for n in notes] == ["owner bot poller ended", "owner bot poller ended"]
+    assert "RuntimeError: odd" in notes[0] and "returned" in notes[1]

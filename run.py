@@ -349,9 +349,10 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
             engine = Engine(brain, FactStore.for_task(now()), now=now, timings=timings)
             runner = Runner(engine, transport, owner, log, timers, synthesize=voice.synthesize)
             owner.on_stop = runner.stop_now
+            owner.on_note = log.record_note
             await owner.send(texts.t("start", mode=args.mode, peer=peer))
             started = True
-            poller = asyncio.get_running_loop().create_task(owner.poll())
+            poller = asyncio.get_running_loop().create_task(owner.poll_forever())
             await queue.put(Event("opening"))
             window = RunWindow(args.until, args.linger)
             while not runner.stopped:

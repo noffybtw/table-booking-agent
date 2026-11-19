@@ -34,6 +34,8 @@ class OwnerBot:
         self.asked: dict[int, str] = {}  # message_id of a question -> key
         self.running = False
         self.on_stop = None  # called at once on /stop, before the event waits in the queue behind a slow turn
+        self.on_note = None  # gets a line for the run log when an update is skipped or the poller restarts
+        self.closed = False
 
     def __repr__(self) -> str:
         return f"OwnerBot(chat_id={self.chat_id})"
@@ -81,6 +83,10 @@ class OwnerBot:
         old = await self.call("getUpdates", offset=-1, timeout=0)
         self.offset = old[-1]["update_id"] + 1 if old else None
 
+    def _note(self, text: str) -> None:
+        if self.on_note:
+            self.on_note(text.replace(self._base, f"{API}/bot[secret]"))
+
     async def poll(self) -> None:
         self.running = True
         while self.running:
@@ -94,9 +100,28 @@ class OwnerBot:
                 continue
             for u in updates:
                 self.offset = u["update_id"] + 1
-                ev = await self.handle_update(u)
+                try:
+                    ev = await self.handle_update(u)
+                except Exception as e:  # noqa: BLE001 - one odd update must not end the owner channel
+                    self._note(f"owner bot: update {u.get('update_id')} skipped ({type(e).__name__}: {str(e)[:120]})")
+                    continue
                 if ev is not None:
                     await self.queue.put(ev)
+
+    async def poll_forever(self, delay: float = 5.0) -> None:
+        """poll() for the whole run: if it ever ends while the bot is open, that is logged and it starts again."""
+        while not self.closed:
+            try:
+                await self.poll()
+                why = "returned"
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                why = f"{type(e).__name__}: {str(e)[:120]}"
+            if self.closed:
+                return
+            self._note(f"owner bot poller ended ({why}), restarting in {delay:.0f} s")
+            await asyncio.sleep(delay)
 
     async def handle_update(self, u: dict) -> Event | None:
         if "callback_query" in u:
@@ -128,7 +153,8 @@ class OwnerBot:
         if not text:
             return None
         if text.startswith("/"):
-            cmd = text[1:].split()[0].split("@")[0].lower()
+            words = text[1:].split()
+            cmd = words[0].split("@")[0].lower() if words else ""
             if cmd in COMMANDS:
                 if cmd == "stop" and self.on_stop:
                     self.on_stop()
@@ -139,4 +165,5 @@ class OwnerBot:
 
     async def close(self) -> None:
         self.running = False
+        self.closed = True
         await self.http.aclose()
