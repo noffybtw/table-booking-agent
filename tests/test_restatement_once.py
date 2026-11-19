@@ -74,3 +74,17 @@ def test_no_restaurant_name_after_one_ask_restates_at_your_restaurant():
     acts = e.handle(Event("manager_message", text="Ha, sorry - it's The Ivy."))
     late = restatements(acts)
     assert len(late) == 1 and "at The Ivy" in late[0] and not late[0].startswith(restate.CORRECTION_OPENER)
+
+
+def test_owner_phone_with_no_model_reply_still_reaches_the_manager():
+    e = opened(D("Let me check both and come back to you.", action="final_restatement", intent="agreed",
+                 manager_agreed=True, needs_owner=["phone"]))
+    e.handle(Event("manager_message", text="Yes, 17:00 for two is fine. A contact number, please?"))
+    e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    acts = e.handle(Event("owner_answer", key="phone", text="+44 7700 900123"))
+    out = texts(acts)
+    assert len(out) == 1 and "+44 7700 900123" in out[0] and "restaurant's name" in out[0]
+    e.brain.push(D("Thank you!", intent="question", restaurant_name=REST))
+    acts = e.handle(Event("manager_message", text=f"It's {REST}."))
+    said = restatements(acts)
+    assert len(said) == 1 and "contact number +44 7700 900123" in said[0]

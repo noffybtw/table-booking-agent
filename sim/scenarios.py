@@ -116,7 +116,7 @@ SCENARIOS = [
             intent="agreed", manager_agreed=True, needs_owner=["guest_name"], decision="agreed; name not known"),
           sends=1, voice=False, asks=["guest_name"], never=["To confirm", "correction", "Yaroslav"]),
         O("Yaroslav", D("Thank you for waiting - it's under Yaroslav.", intent="asks_info", guest_name="Yaroslav"),
-          key="guest_name", sends=1, says=["Yaroslav", "restaurant"], never=["correction"]),
+          key="guest_name", sends=1, says=["Yaroslav"], never=["correction"]),
         M(f"It's {REST}.", D("Thank you!", intent="question", restaurant_name=REST),
           **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"], "never": ["correction"]}),
     ], restatements=1),

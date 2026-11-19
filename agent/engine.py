@@ -51,6 +51,7 @@ class Engine:
         self.agreed = False
         self.asked_restaurant = False
         self.unnamed = False                 # asked once, no restaurant name: restate with "at your restaurant"
+        self.answered: str | None = None     # the owner question answered in this turn
         self.restated_sig: tuple | None = None
         self.n_restated = 0
         self.closed = False                  # one closing reply went out after the restatement
@@ -80,6 +81,7 @@ class Engine:
             self.held.append(ev)
             return [Log("note", {"text": f"paused, {ev.kind} kept for later"})]
         self.turn += 1
+        self.answered = None
         if ev.kind == "opening":
             return self._opening()
         if ev.kind in ("manager_message", "manager_voice", "manager_media", "manager_edit"):
@@ -217,6 +219,7 @@ class Engine:
             self.chat_texts.append(text)
         self.chat_texts.append(line)
         n_before = self.n_out
+        self.answered = key
         event = (f"{self.who} answered privately (the OWNER line above). Continue with the manager using it; "
                  f"do not ask the manager anything you already know.")
         acts += self._respond(event, self.last_voice)
@@ -417,9 +420,10 @@ class Engine:
                     acts += self._say(reply, event, "holding line for the owner question", fallback=HOLD)
                 return acts
             if "restaurant_name" in restate.missing(f):
-                if reply and said is None and not policy.asks_restaurant(reply) and not self.asked_restaurant:
+                lead = reply or self._detail_line()
+                if lead and said is None and not policy.asks_restaurant(lead) and not self.asked_restaurant:
                     # the owner's answer (a name, a phone) goes to the manager together with the question
-                    acts += self._say(f"{reply} {ASK_RESTAURANT_ALSO}", event,
+                    acts += self._say(f"{lead} {ASK_RESTAURANT_ALSO}", event,
                                       "owner answered; restaurant name unknown, asking before the restatement",
                                       fallback=restate.ASK_RESTAURANT, voice=voice)
                 elif reply and policy.asks_restaurant(reply):
@@ -534,6 +538,14 @@ class Engine:
         if rearm:
             acts += self._arm_silence()
         return acts
+
+    def _detail_line(self) -> str | None:
+        """The name or phone the owner just gave, for a turn where the model wrote no reply."""
+        if self.answered == "guest_name" and self.facts.get("guest_name"):
+            return f"Thank you for waiting - the booking can go under {self.facts.get('guest_name')}."
+        if self.answered == "phone" and self.facts.get("phone"):
+            return f"Thank you for waiting - the contact number is {self.facts.get('phone')}."
+        return None
 
     def _ask_help(self) -> list:
         """The owner is asked what to say; the same reminder and the apology to the manager as any question."""

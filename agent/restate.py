@@ -46,6 +46,8 @@ def build(facts: FactStore, variant: int = 0, correction: bool = False, unnamed:
     text = f"{opener} {booking_line(facts)}"
     if facts.get("guest_name"):
         text += f", under the name {facts.get('guest_name')}"
+    if facts.get("phone"):
+        text += f", contact number {facts.get('phone')}"  # the owner gave it because the manager asked
     text += "."
     if facts.get("condition"):
         text += f" Noted: {str(facts.get('condition')).rstrip('.')}."
