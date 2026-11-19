@@ -48,11 +48,14 @@ ASKED_RE = {
 
 # the owner's answer to "another time?" in words; parsed in Ukrainian, Russian and English whatever OWNER_LANG says
 YES_RE = re.compile(r"^\s*(?:(?:да|ага|ок|окей|ok|okay|yes|yep|sure|fine|подходит|годится|давай|согласен|норм|хорошо|"
-                    r"ладно|конечно|пойд[её]т|можно|бер[её]м|так|добре|гаразд|звісно|підходить|згоден|годиться)\b|"
+                    r"ладно|конечно|пойд[её]т|можно|бер[её]м|добре|гаразд|звісно|підходить|згоден|годиться)\b|"
                     r"\+|\U0001F44D)", re.I)
 NO_RE = re.compile(r"^\s*(нет|не подходит|только|ні|не підходить|тільки|лише|no|nope|only|not)\b", re.I)
-# a yes that also says no ("ок, но только 17:00") is not a yes
-NOT_RE = re.compile(r"\b(нет|не|только|ні|тільки|лише|no|not|only)\b", re.I)
+# a yes that also says no or "but" ("ок, но только 17:00", "так, але краще 18:00") is not a yes
+NOT_RE = re.compile(r"\b(нет|не|только|ні|тільки|лише|no|not|only|но|але|лучше|краще|but|rather|better)\b", re.I)
+# "так" is a yes alone or before another yes word; "так, подожди" or "так собі" is not
+TAK_RE = re.compile(r"^\s*так\b[\s,.!)]*", re.I)
+WAIT_RE = re.compile(r"подожд|зачека|почека|\bстоп\b|\bwait\b|\bhold on\b", re.I)
 
 
 def manager_asked(key: str, manager_texts: list[str]) -> bool:
@@ -106,12 +109,32 @@ def strip_label(text: str) -> str:
                   flags=re.I).strip()
 
 
+def _yes(text: str) -> bool:
+    m = TAK_RE.match(text)
+    if m:
+        rest = text[m.end():]
+        return not rest.strip() or _yes(rest)
+    return bool(YES_RE.match(text))
+
+
 def time_answer(text: str, offered: str | None, time: str | None) -> str | None:
-    """"accept", "only" or None (not understood) for an answer typed instead of a button."""
-    said = guard.norm_time(text)
-    if NO_RE.match(text) or (said and said == time):
+    """"accept", "only" or None (not understood: the question goes again with its buttons) for an answer typed
+    instead of a button. A question, a wait word or a time other than the one the answer is about is None."""
+    text = text or ""
+    if "?" in text or WAIT_RE.search(text):
+        return None
+    times = [c for _, c in guard.find_times(text)]
+
+    def only(t):
+        return bool(t) and all(t in c for c in times)
+
+    if NO_RE.match(text):
+        return "only" if only(time) or not times else None
+    if _yes(text) and not NOT_RE.search(text):
+        return "accept" if only(offered) or not times else None
+    if times and only(time):
         return "only"
-    if (YES_RE.match(text) and not NOT_RE.search(text)) or (offered and said == offered):
+    if times and only(offered):
         return "accept"
     return None
 

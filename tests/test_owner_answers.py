@@ -79,7 +79,8 @@ def test_several_open_and_unclear_text_asks_which():
 
 
 YES_WORDS = ["хорошо", "ладно", "конечно", "пойдёт", "пойдет", "можно", "берём", "берем", "так", "добре", "гаразд",
-             "звісно", "підходить", "згоден", "годиться", "+", "\U0001F44D", "да", "ok", "Yes, fine"]
+             "звісно", "підходить", "згоден", "годиться", "+", "\U0001F44D", "да", "ok", "Yes, fine",
+             "так, давай", "так!", "давай 18:30"]
 NO_WORDS = ["нет", "не подходит", "только 17:00", "ні", "не підходить", "тільки 17:00", "лише 17", "no", "only 17:00"]
 
 
@@ -111,7 +112,9 @@ def test_no_in_words_keeps_17_and_declines_the_offer(word):
     assert e.facts.get("time") == "17:00" and e.declined_times == {"18:30"}
 
 
-@pytest.mark.parametrize("word", ["хм", "подумаю", "ок, но не знаю", "а 19:00?", "ну как там?"])
+@pytest.mark.parametrize("word", ["хм", "подумаю", "ок, но не знаю", "а 19:00?", "ну как там?", "давай 19:00",
+                                  "так, але краще 18:00", "можно ли 18:00?", "ладно, но лучше 17", "так, подожди",
+                                  "так собі", "ні, краще 19:00", "добре, зачекай", "ok, hold on", "стоп"])
 def test_neither_yes_nor_no_sends_the_question_again(word):
     e = countered()
     acts = e.handle(Event("owner_answer", key="alternative_time", text=word))
