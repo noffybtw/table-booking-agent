@@ -131,3 +131,12 @@ def test_stray_owner_message_gets_the_status_and_no_model_turn():
     e.brain.push(D("Thank you, could I book a table for two today at 17:00?"))
     e.handle(Event("manager_message", text="Hello, sorry, who is this?"))
     assert e.brain.calls[-1]["facts"]["owner_note"] == "ну як там?"
+
+
+def test_a_chase_while_the_owner_is_asked_never_gets_silence():
+    from agent.engine import STILL_CHECKING
+    e = opened()
+    asked(e, "What name shall I put it under?", "guest_name")
+    e.brain.push(D(action="wait", intent="question"))
+    acts = e.handle(Event("manager_message", text="Any luck?"))
+    assert sends(acts) == [STILL_CHECKING]

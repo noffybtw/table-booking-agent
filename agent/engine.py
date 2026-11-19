@@ -452,6 +452,10 @@ class Engine:
             if new_keys:
                 acts += self._say(HOLD, event, "holding line while the owner is asked", fallback=HOLD,
                                   voice=voice)
+            elif self.pending and said is not None:
+                # the manager wrote while the owner is still asked ("Any luck?"): silence would read as gone
+                acts += self._say(STILL_CHECKING, event, "the owner has not answered yet; still checking",
+                                  fallback=STILL_CHECKING, voice=voice)
             return acts
         why = d.decision or d.action
         # every draft blocked: a closing after the restatement, otherwise a holding line and the owner is asked
