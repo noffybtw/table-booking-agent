@@ -224,9 +224,11 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
 
 
 # the manager's plain yes to "Is the table ... all confirmed, then?": no question, no "but", no other time
-MANAGER_YES_RE = re.compile(r"^\s*(?:(?:ok|okay|yes|yep|yeah|yup|sure|correct|confirmed|all confirmed|that's right|"
+MANAGER_YES_RE = re.compile(r"^[\s,.!]*(?:(?:ok|okay|yes|yep|yeah|yup|sure|correct|confirmed|all confirmed|that's right|"
                             r"that's correct|that's fine|right|fine|perfect|great|lovely|absolutely|definitely|"
-                            r"indeed|of course|all good|done|booked)\b|\U0001F44D)", re.I)
+                            r"indeed|of course|all good|done|booked|all booked|it is|that is)\b|\U0001F44D)", re.I)
+# "no" that means yes; taken out before the stop list
+NO_PROBLEM_RE = re.compile(r"\bno (?:problem|worries)\b", re.I)
 MANAGER_NOT_RE = re.compile(r"\b(?:no|not|sorry|but|unfortunately|actually|wait|hold on|only|instead)\b|n't", re.I)
 # "Ok, let me check" or "Yes, one moment" is the manager stalling, not agreeing
 MANAGER_STALL_RE = re.compile(r"\b(?:let me|will|check\w*|moments?|minutes?|secs?|seconds?|look\w*|see(?! you\b)|"
@@ -235,7 +237,8 @@ MANAGER_STALL_RE = re.compile(r"\b(?:let me|will|check\w*|moments?|minutes?|secs
 # "§" stands for the booking time, written any way.
 MANAGER_YES_WORDS = ("ok", "okay", "yes", "yep", "yeah", "yup", "sure", "correct", "confirmed", "all confirmed",
                      "that's right", "that's correct", "that's fine", "right", "fine", "perfect", "great", "lovely",
-                     "absolutely", "definitely", "indeed", "of course", "all good", "done", "booked")
+                     "absolutely", "definitely", "indeed", "of course", "all good", "done", "booked", "all booked",
+                     "it is", "that is")
 MANAGER_YES_ALLOW = ("that's", "that is", "it is", "all", "all good", "confirmed", "booked", "fine", "good", "great",
                      "perfect", "lovely", "thanks", "thank you", "cheers", "see you", "then", "the time", "for two",
                      "at §", "§")
@@ -259,7 +262,12 @@ def _only_yes_words(text: str, time: str | None) -> bool:
 
 def manager_yes(text: str, time: str | None) -> bool:
     t = (text or "").strip()
-    if not t or "?" in t or len(t.split()) > 12 or MANAGER_NOT_RE.search(t) or MANAGER_STALL_RE.search(t):
+    if not t or "?" in t or len(t.split()) > 12:
+        return False
+    t = NO_PROBLEM_RE.sub(" ", t).strip()
+    if not t.strip(" ,.!"):
+        return True  # "No problem!"
+    if MANAGER_NOT_RE.search(t) or MANAGER_STALL_RE.search(t):
         return False
     if any(time not in cands for _, cands in guard.find_times(t)):
         return False

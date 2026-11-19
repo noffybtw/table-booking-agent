@@ -147,6 +147,10 @@ def test_a_stalling_answer_to_the_confirm_question_is_not_a_yes():
     for t in ("Yes", "Yes, that's fine", "Yes, all confirmed", "Confirmed", "That's fine, see you then",
               "Great, thanks, see you at 17:00 then!"):
         assert policy.manager_yes(t, "17:00"), t
+    for t in ("Yes, no problem", "Yeah no worries", "No problem, all booked", "All booked", "It is", "That is, yes"):
+        assert policy.manager_yes(t, "17:00"), t
+    for t in ("No problem, let me check", "No worries, but only until 19:00", "No, sorry"):
+        assert not policy.manager_yes(t, "17:00"), t
     # words outside the short list are left to the model
     assert not policy.manager_yes("Yes, the chef says so", "17:00")
 
