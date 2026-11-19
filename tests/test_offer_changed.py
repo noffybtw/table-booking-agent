@@ -129,3 +129,30 @@ def test_an_edited_offer_is_a_new_question():
     old = tap(e, "accept@20:00")
     assert sent(old) == [] and any(a.question.startswith(texts.t("time_old")) for a in old if isinstance(a, AskOwner))
     assert e.facts.get("time") == "17:00"
+
+
+def test_the_booked_time_free_after_all_drops_the_open_question():
+    # R10 finding 4
+    from agent import texts
+    from agent.events import NotifyOwner
+    e = opened()
+    mgr(e, "Sorry, 17:00 is full. I can do 20:00", offer("20:00"))
+    acts = mgr(e, "Actually 17:00 has come free after all, shall I book 17:00?",
+               D("Yes please, 17:00 would be perfect.", intent="counter_offer"))
+    told = [a.text for a in acts if isinstance(a, NotifyOwner)]
+    assert told == [texts.t("time_free", time="17:00", offered="20:00")]
+    assert "alternative_time" not in e.pending and e.facts.get("offered_time") is None
+    assert sent(acts) == ["Yes please, 17:00 would be perfect."]
+    acts = mgr(e, "Done, booked.", D("", action="final_restatement", intent="agreed", manager_agreed=True))
+    assert e.agreed and e.facts.get("time") == "17:00" and any("restaurant" in t for t in sent(acts))
+    assert sent(tap(e, "accept@20:00")) == [] and e.facts.get("time") == "17:00"
+
+
+def test_the_booked_time_still_not_free_keeps_the_question():
+    from agent import policy
+    assert not policy.booked_time_free("Sorry, 17:00 still isn't free.", "17:00")
+    assert not policy.booked_time_free("17:00 is free but 20:00 is better", "17:00")
+    e = opened()
+    mgr(e, "Sorry, 17:00 is full. I can do 20:00", offer("20:00"))
+    mgr(e, "Sorry, 17:00 still isn't free.", D("Thank you.", intent="other"))
+    assert e.pending["alternative_time"]["offered"] == "20:00"

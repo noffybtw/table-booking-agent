@@ -576,6 +576,17 @@ def manager_ends(text: str, confirmed: bool) -> bool:
                 and (confirmed or not AGREE_WORD_RE.search(t)))
 
 
+FREE_RE = re.compile(r"\b(?:free|available|opened up|come up|after all|can do|works|is fine|is yours|have it)\b", re.I)
+NEGATION_RE = re.compile(r"\b(?:not|no|never)\b|n't\b", re.I)
+
+
+def booked_time_free(text: str, booked: str | None) -> bool:
+    """"Actually 17:00 has come free after all": the booked time is named as free and no other time is."""
+    times = guard.find_times(text or "")
+    return bool(times and all(booked in c for _, c in times) and FREE_RE.search(text)
+                and not NEGATION_RE.search(text))
+
+
 def reference(text: str) -> str | None:
     m = REFERENCE_RE.search(text or "")
     return m.group(1) if m else None

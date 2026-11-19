@@ -535,6 +535,15 @@ class Engine:
             self.pending.pop("alternative_time")
             self.held_for.discard("alternative_time")
             notes.append(f"the offer changed to {offered} while the owner was asked: asking again")
+        elif open_q and said and policy.booked_time_free(" ".join(said), f.get("time")):
+            # "Actually 17:00 has come free after all": the question about the other time is void, the owner is told
+            self.pending.pop("alternative_time")
+            self.held_for.discard("alternative_time")
+            f.drop("offered_time")
+            acts.append(NotifyOwner(texts.t("time_free", time=f.get("time"), offered=open_q.get("offered") or
+                                            texts.t("other_time"))))
+            notes.append(f"the manager says {f.get('time')} is free after all: the question about "
+                         f"{open_q.get('offered')} dropped")
         window_took = False
         if (self.profile and self.profile.window and said is not None and offered and offered != f.get("time")
                 and "alternative_time" not in self.pending):
