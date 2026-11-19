@@ -107,3 +107,19 @@ def test_audit_lists_a_question_for_the_name(tmp_path):
         'Could you let me know the restaurant\'s name, please?" | why: agreed\n')
     found = audit(tmp_path)
     assert len(found) == 1 and found[0].startswith("test-x #6 11:49:52 guest_name")
+
+
+def test_holding_line_is_never_sent_twice_word_for_word():
+    same = "I'll check with the guest and get back to you shortly."
+    e = opened(D(same, action="ask_owner", intent="counter_offer", needs_owner=["alternative_time"],
+                 offered_time="18:30"))
+    first = sends(e.handle(Event("manager_message", text="Sorry, 17:00 is fully booked, but I can do 18:30.")))
+    e.brain.push(D("Thank you, 18:30 works for us.", **dict(action="final_restatement", intent="agreed",
+                                                             manager_agreed=True)))
+    e.handle(Event("owner_answer", key="alternative_time", value="accept"))
+    e.brain.push(D(same, **ASK_BOTH))
+    second = sends(e.handle(Event("manager_message", text="Lovely. What name and phone number should I put it under?")))
+    e.brain.push(D(same, intent="question"))
+    third = sends(e.handle(Event("manager_message", text="Any luck?")))
+    assert first == [same] and len(second) == 1 and len(third) == 1
+    assert len({first[0], second[0], third[0]}) == 3

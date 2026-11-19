@@ -21,6 +21,9 @@ OPENING = "{greeting}. I'm an assistant - could I book a table for two today at 
 HOLD = "Let me just check that and come back to you in a moment."
 STILL_CHECKING = "Thank you for bearing with me, I'm still checking that."
 SORRY_WAIT = "Sorry for the wait, I'm still confirming that detail."
+# a holding line already sent in this conversation goes as the first of these not sent yet
+HOLD_AGAIN = (HOLD, STILL_CHECKING, "Thanks for your patience - I'm just confirming that now.",
+              "Bear with me a moment longer, please - I'm still checking.", SORRY_WAIT)
 NAME_ONLY = " Would it be all right to hold the table under the name {name} for now?"
 FOLLOW_UP_1 = "Sorry to chase - just checking whether a table for two at {time} today might be possible?"
 FOLLOW_UP_CONFIRM = "Sorry to chase - just checking that the table for {people} at {time} today is all confirmed?"
@@ -645,6 +648,11 @@ class Engine:
         if probs:
             acts.append(NotifyOwner(texts.t("guard_nothing", why=guard.describe(first))))
             return acts
+        if self.pending and f"AGENT: {text}" in self.transcript:
+            other = next((h for h in HOLD_AGAIN if f"AGENT: {h}" not in self.transcript), None)
+            if other:
+                acts.append(Log("guard", {"text": other, "problems": [], "result": "ok", "retry": "holding line again"}))
+                text, why = other, why + " (the same holding line went out before: another wording)"
         self.n_out += 1
         self.transcript.append(f"AGENT: {text}")
         acts.append((SendVoice if voice else SendText)(text, why, self.n_out))
