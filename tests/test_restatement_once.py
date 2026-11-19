@@ -1,7 +1,7 @@
 """One restatement: it waits for a name or phone the manager asked for, and "correction" only when a fact changed."""
 import pytest
 
-from agent import restate
+from agent import policy, restate
 from agent.brain import D
 from agent.events import Event, NotifyOwner, SendText, SendVoice
 from test_owner_answers import opened
@@ -339,3 +339,11 @@ def test_let_me_know_cut_keeps_the_rest_of_the_sentence():
     e.brain.push(D("It's under Kostyk, let me know if that suits.", intent="asks_info"))
     out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
     assert out == ["It's under Kostyk. Is the table for two at 17:00 today all confirmed, then?"]
+
+
+@pytest.mark.parametrize("text,yes", [
+    ("Ok, later", False), ("Yes, later", False), ("Fine, later then", False), ("Yes, soon", False),
+    ("Yes, see you later", True), ("Ok, see you soon", True), ("Great, see you tonight", True),
+])
+def test_later_or_soon_alone_is_not_a_yes(text, yes):
+    assert policy.manager_yes(text, "17:00") is yes

@@ -283,7 +283,7 @@ MANAGER_YES_WORDS = ("ok", "okay", "yes", "yep", "yeah", "yup", "sure", "correct
 MANAGER_YES_ALLOW = ("that's", "that is", "it is", "all", "all good", "confirmed", "booked", "fine", "good", "great",
                      "perfect", "lovely", "thanks", "thank you", "cheers", "see you", "then", "the time", "for two",
                      "at §", "§", "it's", "is", "the table", "the booking", "you're", "you are", "under", "for",
-                     "today", "tonight", "later", "soon", "set", "sorted")
+                     "today", "tonight", "see you later", "see you soon", "see you tonight", "set", "sorted")
 _YES_PHRASES = sorted({tuple(p.split()) for p in MANAGER_YES_WORDS + MANAGER_YES_ALLOW}, key=len, reverse=True)
 
 
