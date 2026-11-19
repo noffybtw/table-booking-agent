@@ -200,6 +200,22 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
     return ok, rejected
 
 
+# the manager's plain yes to "Is the table ... all confirmed, then?": no question, no "but", no other time
+MANAGER_YES_RE = re.compile(r"^\s*(?:(?:ok|okay|yes|yep|yeah|yup|sure|correct|confirmed|all confirmed|that's right|"
+                            r"that's correct|that's fine|right|fine|perfect|great|lovely|absolutely|definitely|"
+                            r"indeed|of course|all good|done|booked)\b|\U0001F44D)", re.I)
+MANAGER_NOT_RE = re.compile(r"\b(?:no|not|sorry|but|unfortunately|actually|wait|hold on|only|instead)\b|n't", re.I)
+
+
+def manager_yes(text: str, time: str | None) -> bool:
+    t = (text or "").strip()
+    if not t or "?" in t or len(t.split()) > 12 or MANAGER_NOT_RE.search(t):
+        return False
+    if any(time not in cands for _, cands in guard.find_times(t)):
+        return False
+    return bool(MANAGER_YES_RE.match(t))
+
+
 ASKS_RESTAURANT_RE = re.compile(r"restaurant'?s name|name of (?:the|your) restaurant|which restaurant|"
                                 r"what(?:'s| is) the restaurant", re.I)
 

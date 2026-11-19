@@ -28,6 +28,8 @@ BAD_VOICE = "Sorry, I couldn't play that voice note. Could you type it, please?"
 TECH_HOLD = "Thank you - give me just a moment, please."
 CLOSING = "Thank you very much, have a lovely day."
 ASK_RESTAURANT_ALSO = "Could I also take the restaurant's name for my note?"
+CONFIRM_Q = "Is the table for {people} at {time} today all confirmed, then?"
+CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
 DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
 PLEASANTRY = ("closing", "greeting")
 
@@ -51,6 +53,7 @@ class Engine:
         self.agreed = False
         self.asked_restaurant = False
         self.unnamed = False                 # asked once, no restaurant name: restate with "at your restaurant"
+        self.confirm_asked = False           # "Is the table ... all confirmed, then?" went out, no answer yet
         self.answered: str | None = None     # the owner question answered in this turn
         self.restated_sig: tuple | None = None
         self.n_restated = 0
@@ -161,6 +164,9 @@ class Engine:
             event = "The manager sent a sticker or photo with no text. Ask one short clarifying question."
         else:
             event = "New message(s) from the manager above. React to all of it in one reply."
+        if self.confirm_asked:
+            event += (" Your last message asked whether the table is all confirmed: a yes to it is the manager's "
+                      "agreement.")
         said = None if ev.kind == "manager_edit" else [m.text or "" for m in msgs]
         return acts + self._respond(event, self.last_voice, said)
 
@@ -368,6 +374,11 @@ class Engine:
             notes.append(f"manager offered {offered}: another time is the owner's call, asking")
 
         agreed_now = d.action == "final_restatement" or d.slots.manager_agreed
+        if not agreed_now and self.confirm_asked and said is not None and policy.manager_yes(" ".join(said), f.get("time")):
+            agreed_now = True
+            notes.append("a plain yes to the confirm question: agreed")
+        if said is not None:
+            self.confirm_asked = False
         if agreed_now and (time_open or "alternative_time" in self.pending):
             agreed_now = False
             notes.append("agreement ignored while another time is open")
@@ -437,6 +448,12 @@ class Engine:
                     acts += self._say(reply, event, d.decision, fallback=restate.ASK_RESTAURANT, voice=voice)
                 self.asked_restaurant = True
                 return acts
+
+        if (said is None and self.answered in DETAIL_KEYS and not self.agreed and not new_keys and not time_open
+                and not any(k in self.pending for k in DETAIL_KEYS + ("alternative_time",))):
+            # the agreement is not recorded (the model may read "Yes, 17:00 is fine. What name?" as a question only):
+            # the name or phone goes with a confirm question, and a plain yes to it is the agreement
+            return acts + self._ask_confirm(reply if d.action not in ("wait", "end") else "", voice)
 
         # one closing reply after the restatement is owed even when the model chose to stay quiet
         owed = (self.phase == CONFIRMED and not self.closed and said is not None and d.intent in PLEASANTRY
@@ -550,6 +567,29 @@ class Engine:
         if self.answered == "phone" and self.facts.get("phone"):
             return f"Thank you for waiting - the contact number is {self.facts.get('phone')}."
         return None
+
+    def _ask_confirm(self, reply: str, voice: bool) -> list:
+        f = self.facts
+        detail = self._detail_line() or ""
+        value = str(f.get(self.answered) or "")
+        lead = reply if reply and value.lower() in reply.lower() else detail
+        n = int(f.get("party_size"))
+        q = "" if CONFIRM_RE.search(lead) else CONFIRM_Q.format(people=restate.NUMBER_WORDS.get(n, str(n)),
+                                                                  time=f.get("time"))
+        ask_rest = ("restaurant_name" in restate.missing(f) and not self.asked_restaurant
+                    and not policy.asks_restaurant(lead))
+        tail = [q or CONFIRM_Q.format(people=restate.NUMBER_WORDS.get(n, str(n)), time=f.get("time"))]
+        if ask_rest:
+            tail.append(ASK_RESTAURANT_ALSO)
+        text = " ".join(x for x in [lead, q] + tail[1:] if x)
+        n_before = self.n_out
+        # no model rewrite here: a blocked draft goes as the template, so the confirm question always goes out
+        acts = self._say(text, "", "owner answered; the manager's agreement is not recorded yet, the detail goes with "
+                         "a confirm question", fallback=" ".join(x for x in [detail] + tail if x), voice=voice)
+        if self.n_out > n_before:
+            self.confirm_asked = True
+            self.asked_restaurant = self.asked_restaurant or ask_rest or policy.asks_restaurant(lead)
+        return acts
 
     def _ask_help(self) -> list:
         """The owner is asked what to say; the same reminder and the apology to the manager as any question."""

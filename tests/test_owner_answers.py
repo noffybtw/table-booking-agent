@@ -46,7 +46,9 @@ def test_latin_name_is_accepted():
     e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk"))
     acts = e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
     assert e.facts.get("guest_name") == "Kostyk" and "guest_name" not in e.pending
-    assert sends(acts) == ["Thank you for waiting - it's under Kostyk."]
+    # the manager's yes is not recorded here, so the name goes with a confirm question
+    out = sends(acts)
+    assert len(out) == 1 and out[0].startswith("Thank you for waiting - it's under Kostyk. Is the table for two")
 
 
 def test_phone_typed_as_plain_text_goes_to_the_phone_question():

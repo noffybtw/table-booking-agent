@@ -109,16 +109,19 @@ SCENARIOS = [
         M(f"Perfect, you're all booked in at {REST}.", D(**AGREE, restaurant_name=REST),
           **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"]}),
     ]),
-    Scenario("agreed_name", "\"Yes, 17:00 is fine. What name?\": one holding line, one restatement after the name", [
+    Scenario("agreed_name", "\"Yes, 17:00 is fine. What name?\", then only \"ok\": one restatement, no chasing", [
         opening(),
+        # the real model often reads this as a question only (manager_agreed false); the code still gets there
         M("Yes, 17:00 is fine. What name?",
           D("Lovely, thank you. Let me just check the name and come back to you.", action="ask_owner",
-            intent="agreed", manager_agreed=True, needs_owner=["guest_name"], decision="agreed; name not known"),
+            intent="asks_info", needs_owner=["guest_name"], decision="name not known"),
           sends=1, voice=False, asks=["guest_name"], never=["To confirm", "correction", "Yaroslav"]),
         O("Yaroslav", D("Thank you for waiting - it's under Yaroslav.", intent="asks_info", guest_name="Yaroslav"),
-          key="guest_name", sends=1, says=["Yaroslav"], never=["correction"]),
-        M(f"It's {REST}.", D("Thank you!", intent="question", restaurant_name=REST),
-          **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"], "never": ["correction"]}),
+          key="guest_name", sends=1, says=["Yaroslav"], never=["correction", "might be possible"]),
+        M("ok", D("Thank you!", intent="closing"),
+          sends=1, voice=True, says=["17:00", "Thursday 19 November", "two", "at your restaurant",
+                                     "under the name Yaroslav"], never=["correction", "might be possible"]),
+        silence(40, sends=0),
     ], restatements=1),
     Scenario("owner_slow", "the owner does not answer: one reminder, one apology to the manager, nothing invented", [
         opening(),

@@ -88,3 +88,51 @@ def test_owner_phone_with_no_model_reply_still_reaches_the_manager():
     acts = e.handle(Event("manager_message", text=f"It's {REST}."))
     said = restatements(acts)
     assert len(said) == 1 and "contact number +44 7700 900123" in said[0]
+
+
+ASK_NAME = dict(action="ask_owner", intent="asks_info", needs_owner=["guest_name"])  # agreement not recorded
+
+
+def test_name_with_no_recorded_agreement_goes_with_a_confirm_question_and_ok_restates_once():
+    e = opened(D("Let me just check the name and come back to you.", **ASK_NAME))
+    e.handle(Event("manager_message", text="Yes, 17:00 is fine. What name?"))
+    assert not e.agreed
+    e.brain.push(D("Thank you for waiting - it's under Kostyk.", intent="asks_info", guest_name="Kostyk"))
+    out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
+    assert len(out) == 1 and "Kostyk" in out[0] and "Is the table for two at 17:00 today all confirmed, then?" in out[0]
+    assert "restaurant's name" in out[0] and e.n_restated == 0
+    e.brain.push(D("Thank you!", intent="closing"))  # the model still does not say "agreed"
+    acts = e.handle(Event("manager_message", text="ok"))
+    said = restatements(acts)
+    assert len(said) == 1 and "under the name Kostyk" in said[0] and "at your restaurant" in said[0]
+    assert e.n_restated == 1 and texts(acts) == said
+
+
+def test_confirm_question_keeps_the_name_when_the_model_leaves_it_out():
+    e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
+    e.handle(Event("manager_message", text=f"Yes, 17:00 is fine at {REST}. What name?"))
+    e.brain.push(D(action="wait", intent="asks_info"))
+    out = texts(e.handle(Event("owner_answer", key="guest_name", text="Kostyk")))
+    assert out == ["Thank you for waiting - the booking can go under Kostyk. "
+                   "Is the table for two at 17:00 today all confirmed, then?"]
+    e.brain.push(D("Thank you!", intent="closing"))
+    said = restatements(e.handle(Event("manager_message", text="Yes, all confirmed.")))
+    assert len(said) == 1 and f"at {REST}" in said[0]
+
+
+def test_a_reply_to_the_confirm_question_that_is_not_a_plain_yes_does_not_restate():
+    e = opened(D("Let me just check the name.", **ASK_NAME, restaurant_name=REST))
+    e.handle(Event("manager_message", text=f"Yes, 17:00 is fine at {REST}. What name?"))
+    e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk"))
+    e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
+    e.brain.push(D("Of course, I'll check.", intent="question"))
+    acts = e.handle(Event("manager_message", text="Ok, but could you do 18:00 instead?"))
+    assert restatements(acts) == [] and not e.agreed
+
+
+def test_manager_plain_yes():
+    from agent import policy
+    for t in ("ok", "Ok.", "Yes, all confirmed.", "yep", "\U0001F44D", "Yes, 17:00 confirmed", "Perfect, see you at 5"):
+        assert policy.manager_yes(t, "17:00"), t
+    for t in ("ok?", "Yes but only until 19:00", "Yes, 18:00 then", "Sorry, not yet", "Hmm", "I don't think so", ""):
+        assert not policy.manager_yes(t, "17:00"), t
