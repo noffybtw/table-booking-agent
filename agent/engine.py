@@ -33,6 +33,7 @@ CONFIRM_Q = "Is the table for {people} at {time} today all confirmed, then?"
 CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
 DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
 PLEASANTRY = ("closing", "greeting")
+WITHDRAWN = ("counter_offer", "fully_booked")  # intents that take an unrestated agreement back
 
 MANAGER_LABEL = {"text": "MANAGER", "voice": "MANAGER (voice note, transcribed)", "media": "MANAGER"}
 
@@ -410,6 +411,11 @@ class Engine:
         if agreed_now and (time_open or "alternative_time" in self.pending):
             agreed_now = False
             notes.append("agreement ignored while another time is open")
+        if self.agreed and self.restated_sig is None and (
+                time_open or (said is not None and d.intent in WITHDRAWN)):
+            # "Oh sorry, 17:00 has just gone. I can do 18:00?" before the restatement: the yes no longer stands
+            self.agreed = agreed_now = False
+            notes.append("agreement taken back: the manager offers another time or has no table")
         if agreed_now:
             self.agreed = True
             for k in ("time", "date", "party_size"):
@@ -418,7 +424,8 @@ class Engine:
         new_keys = [k for k in needs if k not in self.pending and not (k in ("guest_name", "phone") and f.get(k))]
         last = self.manager_texts[-1] if self.manager_texts else ""
         sig = restate.signature(f)
-        restate_due = self.agreed and (self.restated_sig is None or (self.phase == CONFIRMED and sig != self.restated_sig))
+        restate_due = (self.agreed and not time_open and "alternative_time" not in self.pending
+                       and (self.restated_sig is None or (self.phase == CONFIRMED and sig != self.restated_sig)))
         # one restatement: while a name or phone the manager asked for is with the owner, only a holding line goes
         waiting = [k for k in DETAIL_KEYS if k in new_keys or k in self.pending]
         hold_restatement = restate_due and self.restated_sig is None and bool(waiting)

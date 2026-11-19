@@ -212,3 +212,45 @@ def test_a_name_left_out_of_the_reply_still_reaches_the_manager_while_the_phone_
     e.brain.push(D("And the number is 07700 900123.", intent="asks_info", manager_agreed=True))
     said = restatements(e.handle(Event("owner_answer", key="phone", text="+44 7700 900123")))
     assert len(said) == 1  # the phone in another format is not added twice: the restatement carries it
+
+
+OFFER_18 = dict(action="ask_owner", intent="counter_offer", needs_owner=["alternative_time"], offered_time="18:00")
+
+
+def test_agreement_taken_back_by_another_time_restates_only_the_new_time():
+    e = opened(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    assert texts(e.handle(Event("manager_message", text="Yes, 17:00 is fine."))) == [restate.ASK_RESTAURANT]
+    e.brain.push(D("I see - let me just check 18:00.", **OFFER_18))
+    acts = e.handle(Event("manager_message", text="Oh sorry, 17:00 has just gone. I can do 18:00?"))
+    assert restatements(acts) == [] and not e.agreed and "alternative_time" in e.pending
+    assert texts(silence(e)) == []  # the owner is asked: no follow-up, no restatement on silence
+    e.brain.push(D("Thank you, 18:00 works for us.", intent="agreed"))
+    acts = e.handle(Event("owner_answer", key="alternative_time", value="accept"))
+    assert restatements(acts) == []
+    e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    said = restatements(e.handle(Event("manager_message", text="Great, 18:00 it is.")))
+    assert len(said) == 1 and "18:00" in said[0] and "17:00" not in said[0] and e.n_restated == 1
+
+
+def test_agreement_taken_back_while_the_name_is_with_the_owner():
+    e = opened(D("Let me just check the name.", **AGREE_ASK))
+    e.handle(Event("manager_message", text="Yes, 17:00 is fine. What name?"))
+    e.brain.push(D("I see - let me just check 18:00 as well.", **OFFER_18))
+    e.handle(Event("manager_message", text="Actually 17:00 has just gone, I can do 18:00?"))
+    e.brain.push(D("Thank you for waiting - it's under Kostyk.", guest_name="Kostyk", intent="asks_info"))
+    acts = e.handle(Event("owner_answer", key="guest_name", text="Kostyk"))
+    assert restatements(acts) == [] and "17:00" not in " ".join(texts(acts))
+    e.brain.push(D("Thank you, 18:00 works for us.", intent="agreed"))
+    assert restatements(e.handle(Event("owner_answer", key="alternative_time", value="accept"))) == []
+    e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True, restaurant_name=REST))
+    said = restatements(e.handle(Event("manager_message", text=f"Lovely, 18:00 under Kostyk at {REST}.")))
+    assert len(said) == 1 and "18:00" in said[0] and "under the name Kostyk" in said[0]
+
+
+def test_agreement_taken_back_by_fully_booked_sends_no_restatement():
+    e = opened(D(action="final_restatement", intent="agreed", manager_agreed=True))
+    e.handle(Event("manager_message", text="Yes, 17:00 is fine."))
+    e.brain.push(D("Oh, that's a shame - thank you for checking.", intent="fully_booked"))
+    acts = e.handle(Event("manager_message", text="Sorry, my mistake, we are full tonight."))
+    assert restatements(acts) == [] and not e.agreed
+    assert restatements(silence(e)) == []
