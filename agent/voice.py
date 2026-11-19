@@ -103,6 +103,7 @@ class Voice:
                 else:
                     ogg = await self._orpheus(text, n)
                     self.last = {"tts": f"{ORPHEUS_MODEL} {self.orpheus_voice}", "errors": errors}
+                self.orpheus_first = engine == "orpheus"  # one voice for the whole run: the engine that spoke stays first
                 return str(ogg)
             except Exception as e:  # noqa: BLE001 - any failure moves on to the other engine
                 errors.append(f"{'edge-tts' if engine == 'edge' else 'orpheus'}: {type(e).__name__}: {str(e)[:100]}")
