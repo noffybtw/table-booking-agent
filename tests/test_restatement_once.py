@@ -323,8 +323,8 @@ def test_the_retry_after_a_model_failure_keeps_the_owner_answer():
 def test_the_confirm_message_is_the_reply_plus_one_question():
     e = opened(D("Let me check both.", action="ask_owner", intent="asks_info", needs_owner=["guest_name", "phone"]))
     e.handle(Event("manager_message", text="Hello. What name and contact number is it under?"))
-    e.brain.push(D("Thank you, the name is Yaroslav.", intent="asks_info", guest_name="Yaroslav"))
-    e.handle(Event("owner_answer", key="guest_name", text="Yaroslav"))
+    # asked in one message: the name waits for the phone, no model turn and nothing to the manager
+    assert texts(e.handle(Event("owner_answer", key="guest_name", text="Yaroslav"))) == [] and not e.brain.queue
     e.brain.push(D("The booking can be under the name Yaroslav, and the contact number is +44 7700 900123. "
                    "Please let me know if that works.", intent="asks_info"))
     out = texts(e.handle(Event("owner_answer", key="phone", text="+44 7700 900123")))

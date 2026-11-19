@@ -326,3 +326,39 @@ ASKS_RESTAURANT_RE = re.compile(r"restaurant'?s name|name of (?:the|your) restau
 
 def asks_restaurant(text: str) -> bool:
     return bool(ASKS_RESTAURANT_RE.search(text or ""))
+
+
+# what the owner holds and the manager does not: asked from the manager, these go to the owner instead
+OWNER_FIELDS = ("guest_name", "phone", "email")
+# open owner questions whose subject is the manager's to name, not the owner's data
+NOT_OWNER_FIELDS = ("alternative_time", "reply_help", "deposit", "card_details")
+FIELD_RE = {
+    "guest_name": re.compile(r"(?<!restaurant's )(?<!restaurant )\bname\b(?! of (?:the|your) restaurant)|\bunder (?:what|which|whose)\b|"
+                             r"\bwho(?:'s| is) (?:it|the booking|the table) for\b", re.I),
+    "phone": re.compile(r"\bphone\b|\bmobile\b|\btelephone\b|\bcontact (?:number|details)\b|\b(?:a|the|your|best) number\b"
+                        r"(?! of\b)|\bnumber (?:to|for|on)\b(?! (?:two|people|guests))", re.I),
+    "email": re.compile(r"\be-?mail\b", re.I),
+    "occasion": re.compile(r"\boccasion\b|\bcelebrat", re.I),
+    "allergies": re.compile(r"\ballerg|\bdiet", re.I),
+}
+ASKING_RE = re.compile(r"\?\s*$|\b(?:please |kindly )?let (?:me|us) know\b|\b(?:could|can|would) you (?:send|share|tell|give|"
+                       r"provide|confirm)\b|\bplease (?:send|share|tell|give|provide|confirm)\b", re.I)
+# a sentence that gives the detail ("under the name Yaroslav", a number) is not a question for it
+GIVES_RE = re.compile(r"\bunder (?:the name )?[A-Z][a-z]|\d[\d* ]{4,}\d")
+
+
+def owner_field_questions(text: str, keys, known=()) -> list[tuple[str, str]]:
+    """(key, sentence) for each sentence of `text` that asks the manager for a field the owner holds. A sentence
+    with a known value or a name or number in it gives the field, it does not ask for it."""
+    out = []
+    for sent in re.split(r"(?<=[.!?;])\s+|\s+-\s+", (text or "").strip()):
+        if not ASKING_RE.search(sent) or asks_restaurant(sent) and not re.search(r"\b(?:guest|booking|your) name\b", sent):
+            continue
+        if GIVES_RE.search(sent) or any(v and str(v).lower() in sent.lower() for v in known):
+            continue
+        for k in keys:
+            rx = FIELD_RE.get(k) or re.compile(r"\b" + r"\s+".join(map(re.escape, k.split("_"))) + r"\b", re.I)
+            if rx.search(sent):
+                out.append((k, sent))
+                break
+    return out

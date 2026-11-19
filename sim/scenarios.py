@@ -137,6 +137,21 @@ SCENARIOS = [
         M(f"Perfect, you're all booked in at {REST}.", D(**AGREE, restaurant_name=REST),
           **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav"]}),
     ]),
+    Scenario("owner_fields_partial", "name and phone asked in one message; the owner answers the phone, the name 30 s "
+             "later; one message carries both, the manager is never asked for either", [
+        opening(),
+        M("Good morning! Yes, 17:00 for two is fine. What name and phone number should I put it under?",
+          D("Lovely, thank you. Let me just check those details and come back to you.", action="ask_owner",
+            intent="asks_info", needs_owner=["guest_name", "phone"], manager_agreed=True,
+            decision="name and phone not known, ask the owner"),
+          sends=1, asks=["guest_name", "phone"], never=["Yaroslav", "+44"]),
+        O("+44 7700 900123", key="phone", contact=True, sends=0),
+        O("Yaroslav", D("Thank you for waiting - the booking can go under Yaroslav.", intent="asks_info",
+                        guest_name="Yaroslav", decision="owner gave the name"),
+          key="guest_name", sends=1, says=["Yaroslav", "+44 7700 900123"], never=["let me know the name", "what name"]),
+        M(f"Lovely, thank you. It's {REST}.", D(**AGREE, restaurant_name=REST),
+          **RESTATED | {"says": RESTATED["says"] + ["under the name Yaroslav", "+44 7700 900123"]}),
+    ], restatements=1),
     Scenario("agreed_name", "\"Yes, 17:00 is fine. What name?\", then only \"ok\": one restatement, no chasing", [
         opening(),
         # the real model often reads this as a question only (manager_agreed false); the code still gets there

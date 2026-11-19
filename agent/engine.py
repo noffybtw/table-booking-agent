@@ -34,6 +34,8 @@ CONFIRM_RE = re.compile(r"\bconfirm\w*[^.!?]*\?", re.I)
 # "Please let me know if that works." in front of the confirm question is a second question: cut it
 LET_ME_KNOW_RE = re.compile(r"(?:^|[,;]?\s+-?\s*)(?:and\s+)?(?:please\s+)?(?:do\s+)?let me know if that(?:'s| is)? "
                             r"(?:works?|suits?|okay|ok|all right|alright|fine)(?: for you| with you)?\s*[.!]*\s*$", re.I)
+OWNER_FIELD_GUARD = "guard: owner-held field asked from the manager, template used"
+FIELD_WORDS = {"guest_name": "name", "phone": "contact number", "email": "email"}
 DETAIL_KEYS = ("guest_name", "phone")  # asked by the manager and given by the owner; the restatement waits for them
 PLEASANTRY = ("closing", "greeting")
 WITHDRAWN = ("counter_offer", "fully_booked")  # intents that take an unrestated agreement back
@@ -60,6 +62,9 @@ class Engine:
         self.unnamed = False                 # asked once, no restaurant name: restate with "at your restaurant"
         self.confirm_asked = False           # "Is the table ... all confirmed, then?" went out, no answer yet
         self.answered: str | None = None     # the owner question just answered; kept until a model reply has used it
+        self.relay: list[str] = []           # the names and phones the reply of this turn must carry
+        self.batch: set[str] = set()         # fields one manager message asked the owner for: they go back together
+        self.held_answers: list[str] = []    # answered fields of the batch waiting for the rest
         self.restated_sig: tuple | None = None
         self.before_restate: tuple = (None, NEW, False)  # restated_sig, phase, closed before the last restatement
         self.n_restated = 0
@@ -239,6 +244,17 @@ class Engine:
         if text:
             self.chat_texts.append(text)
         self.chat_texts.append(line)
+        relay = [key]
+        if key in self.batch:
+            waiting = [k for k in self.batch if k in self.pending]
+            if waiting:
+                # one manager message asked for several fields: the manager gets them all in one message
+                self.held_answers.append(key)
+                return [Log("owner_answer", {"key": key, "text": text, "line": line,
+                                             "summary": f"{summary}, held until {', '.join(waiting)} is answered too"})]
+            relay = self.held_answers + [key]
+            self.batch, self.held_answers = set(), []
+        self.relay = [k for k in relay if k in DETAIL_KEYS]
         n_before = self.n_out
         self.answered = key
         event = (f"{self.who} answered privately (the OWNER line above). Continue with the manager using it; "
@@ -288,6 +304,13 @@ class Engine:
             if self.pending[key].get("apologised"):
                 return []
             self.pending[key]["apologised"] = True
+            held = []
+            if key in self.batch:
+                # the 10 minutes are up for the batch: what the owner did answer goes now, the rest stays open
+                held = [k for k in self.held_answers if k in DETAIL_KEYS]
+                for k in self.batch & set(self.pending):
+                    self.pending[k]["apologised"] = True
+                self.batch, self.held_answers = set(), []
             if key in DETAIL_KEYS and self.agreed and self.restated_sig is None:
                 text = restate.build(self.facts, variant=self.turn, unnamed=self.unnamed)
                 if text:
@@ -303,6 +326,9 @@ class Engine:
             text = SORRY_WAIT
             if key in policy.OPTIONAL_KEYS and self.facts.get("guest_name"):
                 text += NAME_ONLY.format(name=self.facts.get("guest_name"))
+                held = [k for k in held if k != "guest_name"]
+            if held:
+                text += f" In the meantime, {' and '.join(self._detail_parts(held))}."
             return self._say(text, "", f"owner has not answered {key} for 10 minutes", fallback=SORRY_WAIT,
                              rearm=False)
         if name == "brain_retry":
@@ -376,7 +402,7 @@ class Engine:
         self.retry = None
         self.brain_down_sent = False
         acts += self._apply(d, event, voice, said)
-        self.answered = None  # used: a retry after a model failure still has it, the next turn does not
+        self.answered, self.relay = None, []  # used: a retry after a model failure still has them, the next turn not
         return acts
 
     def _apply(self, d: Decision, event: str, voice: bool, said: list[str] | None = None) -> list:
@@ -429,6 +455,9 @@ class Engine:
                 f.confirm(k)
 
         new_keys = [k for k in needs if k not in self.pending and not (k in ("guest_name", "phone") and f.get(k))]
+        fields = [k for k in new_keys if k not in policy.NOT_OWNER_FIELDS]
+        if len(fields) > 1:
+            self.batch = set(fields) | (self.batch & set(self.pending))
         last = self.manager_texts[-1] if self.manager_texts else ""
         sig = restate.signature(f)
         restate_due = (self.agreed and not time_open and "alternative_time" not in self.pending
@@ -581,7 +610,9 @@ class Engine:
         """Guard every outgoing text. Blocked: rewrite once naming the problem, then the fallback model, then the
         template. A blocked text is never sent."""
         acts: list = []
-        text = guard.fix(draft)
+        text, asked = self._owner_fields(guard.fix(draft))
+        if asked:
+            why += f" ({OWNER_FIELD_GUARD})"
         probs = guard.check(text, self.facts, self.chat_texts) if text else [guard.Problem("empty", "no text")]
         acts.append(Log("guard", {"text": text, "problems": [str(p) for p in probs],
                                   "result": "ok" if not probs else "blocked"}))
@@ -591,7 +622,9 @@ class Engine:
                 d = self._decide(event, acts, note=guard.describe(probs), prefer_fallback=prefer_fallback)
                 if d is None or not d.reply.strip():
                     continue
-                text = guard.fix(d.reply)
+                text, asked_again = self._owner_fields(guard.fix(d.reply))
+                if asked_again and not asked:
+                    asked, why = True, why + f" ({OWNER_FIELD_GUARD})"
                 probs = guard.check(text, self.facts, self.chat_texts)
                 acts.append(Log("guard", {"text": text, "problems": [str(p) for p in probs],
                                           "result": "ok" if not probs else "blocked",
@@ -619,26 +652,56 @@ class Engine:
             acts += self._arm_silence()
         return acts
 
-    def _detail_line(self) -> str | None:
-        """The name or phone the owner just gave, for a turn where the model wrote no reply."""
-        if self.answered == "guest_name" and self.facts.get("guest_name"):
-            return f"Thank you for waiting - the booking can go under {self.facts.get('guest_name')}."
-        if self.answered == "phone" and self.facts.get("phone"):
-            return f"Thank you for waiting - the contact number is {self.facts.get('phone')}."
-        return None
+    def _detail_parts(self, keys: list[str]) -> list[str]:
+        parts = []
+        if "guest_name" in keys and self.facts.get("guest_name"):
+            parts.append(f"the booking can go under {self.facts.get('guest_name')}")
+        if "phone" in keys and self.facts.get("phone"):
+            parts.append(f"the contact number is {self.facts.get('phone')}")
+        return parts
+
+    def _detail_line(self, keys: list[str] | None = None) -> str | None:
+        """The names and phones the owner just gave, for a turn where the model wrote no reply."""
+        parts = self._detail_parts(self.relay if keys is None else keys)
+        return f"Thank you for waiting - {' and '.join(parts)}." if parts else None
 
     def _with_detail(self, reply: str) -> str:
         """A reply on the owner's answer that leaves out the name or phone gets the detail line in front."""
-        detail = self._detail_line()
-        if not reply or not detail:
+        if not reply:
             return reply
-        value = str(self.facts.get(self.answered))
-        if self.answered == "phone":
-            if re.sub(r"\D", "", value)[-7:] in re.sub(r"\D", "", reply):
-                return reply
-        elif value.lower() in reply.lower():
+        left_out = []
+        for k in self.relay:
+            value = str(self.facts.get(k) or "")
+            if k == "phone":
+                if re.sub(r"\D", "", value)[-7:] not in re.sub(r"\D", "", reply):
+                    left_out.append(k)
+            elif value.lower() not in reply.lower():
+                left_out.append(k)
+        if not left_out:
             return reply
-        return f"{detail} {reply}"
+        if reply.lower().startswith("thank you"):
+            # "Thank you for waiting - it's under Yaroslav." gets the phone after its first sentence, no second thanks
+            first, _, rest = reply.partition(". ")
+            line = " and ".join(self._detail_parts(left_out))
+            return " ".join(x for x in (first.rstrip(".") + ".", line[0].upper() + line[1:] + ".", rest) if x)
+        return f"{self._detail_line(left_out)} {reply}"
+
+    def _owner_fields(self, text: str) -> tuple[str, bool]:
+        """A question to the manager for a field the owner holds (a name, a phone, an email, any open owner question)
+        is replaced by a template built from the known fields. Returns (text, replaced)."""
+        keys = list(policy.OWNER_FIELDS) + [k for k in self.pending
+                                            if k not in policy.OWNER_FIELDS + policy.NOT_OWNER_FIELDS]
+        known = [self.facts.get(k) for k in policy.OWNER_FIELDS if self.facts.get(k)]
+        if not text or not policy.owner_field_questions(text, keys, known):
+            return text, False
+        parts = self._detail_parts([k for k in DETAIL_KEYS if self.facts.source(k) == "owner"])
+        out = f"Thank you for waiting - {' and '.join(parts)}." if parts else ""
+        still = [FIELD_WORDS[k] for k in policy.OWNER_FIELDS if k in self.pending]
+        if still:
+            out += f" I'm just checking the {' and '.join(still)} and will come back to you shortly."
+        if policy.asks_restaurant(text) and not self.facts.is_confirmed("restaurant_name"):
+            out += f" {ASK_RESTAURANT_ALSO}"
+        return out.strip() or HOLD, True
 
     def _ask_confirm(self, reply: str, voice: bool) -> list:
         """The model's reply (the name or phone in it) plus one question: is it all confirmed. The restaurant's name
