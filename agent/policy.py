@@ -212,13 +212,21 @@ def find_in(texts: list[str], value: str) -> str | None:
 MORNING_RE = re.compile(r"\b(?:in the|this) morning\b", re.I)
 
 
+def as_written(cands: set[str]) -> str:
+    """One value for a time with no am/pm: 1 to 9 is the evening ("6:30" is 18:30, the booking is for 17:00 today),
+    10 and 11 are as written ("11:30" is 11:30, not 23:30)."""
+    if len(cands) == 1:
+        return next(iter(cands))
+    return min(cands) if int(min(cands)[:2]) in (10, 11) else max(cands)
+
+
 def manager_times(manager_texts: list[str]) -> set[str]:
-    """Each time the manager wrote, as one value. "6:30" with no am/pm is 18:30, the booking is for 17:00 today;
-    it is 06:30 only when the manager wrote "06:30", "6:30am" or "6:30 in the morning"."""
+    """Each time the manager wrote, as one value (see as_written); "6:30" is 06:30 only when the manager wrote
+    "06:30", "6:30am" or "6:30 in the morning"."""
     out: set[str] = set()
     for m in manager_texts:
         for _, c in guard.find_times(m):
-            out.add(next(iter(c)) if len(c) == 1 else min(c) if MORNING_RE.search(m) else max(c))
+            out.add(min(c) if MORNING_RE.search(m) else as_written(c))
     return out
 
 

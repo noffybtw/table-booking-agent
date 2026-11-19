@@ -126,3 +126,13 @@ def test_accepting_the_other_time_tells_the_manager_it_works_when_the_restaurant
     e.brain.push(D(action="final_restatement", intent="agreed", manager_agreed=True, restaurant_name=REST))
     said = restatements(e.handle(Event("manager_message", text=f"It's {REST}.")))
     assert len(said) == 1 and "18:30" in said[0] and e.n_restated == 1
+
+
+@pytest.mark.parametrize("manager,model_time,want", [
+    ("We have 11:30 free, 17:00 is full", "11:30", "11:30"), ("We have 11:30 free, 17:00 is full", "23:30", "11:30"),
+    ("17:00 is full, 10:30 is free", "22:30", "10:30"), ("17:00 is full, I can do 9:30", "9:30", "21:30"),
+    ("17:00 is full, 11:30pm is free", "23:30", "23:30"),
+])
+def test_ten_and_eleven_are_read_as_written(manager, model_time, want):
+    e, asked = offered(manager, model_time)
+    assert e.facts.get("offered_time") == want and len(asked) == 1 and want in asked[0].question
