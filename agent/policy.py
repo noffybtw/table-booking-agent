@@ -26,6 +26,12 @@ QUESTIONS_RU = {
     "deposit": "Просят депозит или оплату. Агент деньги не обещает. Что ответить?",
     "card_details": "Просят данные карты. Агент их не даёт. Что ответить?",
 }
+NAME_AGAIN_RU = "Напиши имя латиницей, так, как его сказать менеджеру (например, Yaroslav)."
+WHICH_RU = "Не понял, к какому вопросу это. Открыты: {keys}. Ответь реплаем на нужный вопрос."
+KEY_NAMES_RU = {"guest_name": "имя для брони", "phone": "телефон", "email": "email",
+                "alternative_time": "другое время", "reply_help": "что ответить менеджеру"}
+
+NAME_RE = re.compile(r"^[A-Za-z][A-Za-z '.-]{1,40}$")
 
 
 def norm_key(key: str) -> str:
@@ -64,13 +70,28 @@ def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, 
     return f"{base}{said}", [], key == "phone"
 
 
+def owner_key(pending: list[str], text: str) -> str | None:
+    """Which open question a text without a reply answers: one open question -> that one; several -> a phone if
+    the text has 7 or more digits and the phone is asked; otherwise None (ask the owner to reply to a question)."""
+    if len(pending) == 1:
+        return pending[0]
+    if "phone" in pending and len(re.sub(r"\D", "", text or "")) >= 7:
+        return "phone"
+    return None
+
+
+def which_question(pending: list[str]) -> str:
+    return WHICH_RU.format(keys=", ".join(KEY_NAMES_RU.get(k, k.replace("_", " ")) for k in pending))
+
+
 def strip_label(text: str) -> str:
     return re.sub(r"^\s*(name|имя|phone|телефон|номер|email|почта)\s*[:\-]\s*", "", text or "", flags=re.I).strip()
 
 
 def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None, contact: bool,
-                       turn: int) -> str:
-    """Stores the answer; returns the line the model sees (OWNER ...)."""
+                       turn: int) -> str | None:
+    """Stores the answer; returns the line the model sees (OWNER ...), or None when the answer is not taken and
+    the owner has to be asked again (a name not in Latin letters)."""
     key = norm_key(key)
     text = (text or "").strip()
     if key == "alternative_time":
@@ -103,6 +124,8 @@ def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None,
         return text
     if key == "guest_name":
         name = strip_label(text)
+        if not NAME_RE.match(name):
+            return None  # "Ярослав" or "на Ярослава, на двоих" would go to the manager as it is
         facts.set("guest_name", name, "owner", turn)
         return f"name for the booking: {name}"
     if key == "reply_help":

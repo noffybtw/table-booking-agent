@@ -157,14 +157,28 @@ class Engine:
 
     def _owner(self, ev: Event) -> list:
         acts: list = []
-        key = policy.norm_key(ev.key) if ev.key else (next(iter(self.pending)) if self.pending else "owner_note")
         text = (ev.text or ev.value or "").strip()
+        if ev.key:
+            key = policy.norm_key(ev.key)
+        elif self.pending:
+            key = policy.owner_key(list(self.pending), text)
+            if key is None:
+                # several questions are open and the text fits none of them for sure: ask, store nothing
+                return [Log("owner_answer", {"key": "?", "text": text,
+                                             "result": "not a reply to a question, several are open; asked which"}),
+                        NotifyOwner(policy.which_question(list(self.pending)))]
+        else:
+            key = "owner_note"
         offered = self.facts.get("offered_time")
         if key == "owner_note":
             self.facts.set("owner_note", text, "owner", self.turn)
             line = text
         else:
             line = policy.apply_owner_answer(self.facts, key, text, ev.value, ev.contact, self.turn)
+            if line is None:
+                # the question stays open (and its timers run on); no model turn on an answer that is not taken
+                return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
+                        AskOwner(key, policy.NAME_AGAIN_RU, [], False)]
         if key == "alternative_time" and offered:
             if self.facts.get("time") == offered:
                 # the manager offered it and the owner took it: the new time is agreed on both sides

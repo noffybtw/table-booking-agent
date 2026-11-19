@@ -99,7 +99,8 @@ class RunLog:
                 self.line(f'OWNER asked ({act.data["key"]}): "{short(act.data["question"], 200)}"')
             elif act.kind == "owner_answer":
                 used = f', used in reply #{act.data["used_in"]}' if act.data.get("used_in") else ""
-                self.line(f'OWNER answered {act.data["key"]}: "{short(act.data["text"], 200)}"{used}')
+                result = f' - {act.data["result"]}' if act.data.get("result") else ""
+                self.line(f'OWNER answered {act.data["key"]}: "{short(act.data["text"], 200)}"{used}{result}')
             elif act.kind == "note":
                 self._flush_in()
                 self.line(f"NOTE {act.data.get('text', '')}")
