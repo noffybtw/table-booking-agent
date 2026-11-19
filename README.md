@@ -1,6 +1,6 @@
 # Table-booking agent
 
-A Telegram agent that books a table for two in a London restaurant by writing to the manager from my second Telegram account, «Ярослав» (@alexithymia0x). It opens the chat in English as "an assistant" and names nobody unless the manager asks for a name for the booking. It answers everything the manager says, and after the manager agrees it sends one restatement: time, date, number of people, restaurant. Anything it does not know (the name for the booking, a phone number, whether a later time is fine) it asks me in a separate bot, @yk_booking_console_bot, and waits for my answer. Voice notes work both ways.
+A Telegram agent that books a table for two in a London restaurant by writing to the manager from my second Telegram account, @alexithymia0x. It opens the chat in English as "an assistant" and names nobody unless the manager asks for a name for the booking. It answers everything the manager says, and after the manager agrees it sends one restatement: time, date, number of people, restaurant. Anything it does not know (the name for the booking, a phone number, whether a later time is fine) it asks me in a separate bot, @yk_booking_console_bot, and waits for my answer. Voice notes work both ways.
 
 ## Run
 
@@ -13,9 +13,10 @@ Python 3.12. Packages: telethon, openai, httpx, pydantic, python-dotenv, edge-tt
 | `GROQ_API_KEY` | model, speech-to-text, Orpheus voice |
 | `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` | the account the agent writes from, @alexithymia0x (session file path or a StringSession) |
 | `OWNER_BOT_TOKEN`, `OWNER_CHAT_ID` | the bot where the agent asks me things (@yk_booking_console_bot); its token is kept only in `.env` |
+| `OWNER_LANG` | language of the bot messages to me: `uk` (default) or `ru`; my answers are understood in Ukrainian, Russian and English either way |
 
 ```
-python run.py --mode sim --scenario all            # 14 scripted managers, offline, scripted model
+python run.py --mode sim --scenario all            # 15 scripted managers, offline, scripted model
 python run.py --mode sim --scenario happy --llm groq   # the same scripts against the real model
 python run.py --mode dry                           # you type as the manager, the real model answers, nothing is sent
 python run.py --mode test --now 2026-11-19T08:00   # Telegram, @noffybtw (my main account) plays the manager
@@ -39,7 +40,7 @@ Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.js
 3. The goal is fixed in code: two people, 17:00, today's date in London (`agent/clock.py`). The model call is stateless: system prompt + known facts + the whole chat + the new event. `openai/gpt-oss-120b` on Groq answers in a strict JSON schema: what it understood, intent, slot values, what to ask me, action, reply, and a one-line reason. `qwen/qwen3.8-27b` is the fallback on 429, timeouts and 5xx. I compared both on one scripted chat first: gpt-oss-120b invented nothing in 11 turns; qwen once claimed it had watched a football match.
 4. Code, not the model, decides what is accepted:
    - a restaurant name or an offered time counts only if it appears in the manager's own words;
-   - any time other than 17:00 goes to me with two buttons ("18:30 подходит" / "Только 17:00"); the agent never accepts it alone;
+   - any time other than 17:00 goes to me with two buttons ("18:30 works" / "Only 17:00"); a typed yes or no counts too, anything else brings the buttons back; the agent never accepts another time alone;
    - name, phone or email go to me only if the manager asked for them;
    - the final restatement is built by code from confirmed slots. If the manager agreed but never said the restaurant's name, the agent asks for it first;
    - after the restatement the agent answers one thank-you or goodbye. Further thanks, goodbyes and emoji get no reply, and the decision line says why. Questions and changes always get an answer.
@@ -57,12 +58,13 @@ When the manager sends a voice note, the reply is a voice note with the same tex
 
 ```
 08:00:30 IN manager: "Good morning! Yes, we can do 17:00 for two. What name shall I put it under?" | understood: asks info | decided: name not known, ask the owner
-08:00:30 OWNER asked (guest_name): "На какое имя записать бронь? ..."
+08:00:30 OWNER asked (guest_name): what name to book under
 08:00:30 OUT agent #2: "Wonderful, thank you. Let me just check the name, I'll be back in a moment." | why: name not known, ask the owner
-08:02:30 OWNER answered phone: "+44 77** ***123", used in reply #6
+08:02:00 OWNER answered guest_name: name "Yaroslav", used in reply #5
+08:02:30 OWNER answered phone: +44 77** ***123, used in reply #6
 ```
 
-`events.jsonl` has everything else: each model call with model, latency, tokens and rate-limit headers, each guard result, each timer. Phone numbers are masked in both files, and values from `.env` are scrubbed before anything is written.
+The bot talks to me in Ukrainian; `decisions.md` names each question and answer in English by its key, and a manager message that is not in Latin letters is shown by its length, with the model's English reading next to it. `events.jsonl` keeps the original wording and everything else: each model call with model, latency, tokens and rate-limit headers, each guard result, each timer. Phone numbers are masked in both files, and values from `.env` are scrubbed before anything is written.
 
 ## Limits
 

@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from agent import clock, config
+from agent import clock, config, texts
 from agent.config import RUNS_DIR, STATE_DIR, SafetyError, check_safety, load_secrets, norm_username
 from agent.events import Event
 from agent.facts import FactStore
@@ -80,7 +80,7 @@ async def feed_safely(runner, log, owner, ev) -> None:
     except Exception as e:  # noqa: BLE001 - one bad turn must not end a live chat
         error = f"{type(e).__name__}: {str(e)[:160]}"
         log.record_note(f"error in the {ev.kind} turn ({error}), the run goes on")
-        await runner._safe(owner.notify(f"Ошибка в ходе {ev.kind}: {error}. Агент продолжает."))
+        await runner._safe(owner.notify(texts.t("turn_error", kind=ev.kind, error=error)))
 
 
 class RunWindow:
@@ -306,7 +306,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                                       timings.typing_per_char, timings.typing_max, timings.debounce_quiet,
                                       timings.debounce_max)
         timers = AsyncTimers(queue)
-        poller = None
+        poller, started, ended = None, False, "other"
         try:
             await owner.skip_old()
             resolved = await transport.start()
@@ -314,7 +314,8 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                 raise SafetyError(f"{peer!r} resolved to {resolved!r}; refusing")
             engine = Engine(brain, FactStore.for_task(now()), now=now, timings=timings)
             runner = Runner(engine, transport, owner, log, timers, synthesize=voice.synthesize)
-            await owner.send(f"▶️ Старт: режим {args.mode}, менеджер @{peer}. Команды: /pause /resume /stop /status")
+            await owner.send(texts.t("start", mode=args.mode, peer=peer))
+            started = True
             poller = asyncio.get_running_loop().create_task(owner.poll())
             await queue.put(Event("opening"))
             window = RunWindow(args.until, args.linger)
@@ -330,16 +331,26 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
                 reason = window.end_reason(t, engine.phase == CONFIRMED)
                 if reason == "linger":
                     log.record_note(f"restatement sent and no message for {args.linger:.0f} minutes, ending the run")
+                    ended = "linger"
                     break
                 if reason == "until":
                     log.record_note(f"{args.until} London reached without a confirmed booking, ending the run")
-                    await runner._safe(owner.notify(f"Время вышло ({args.until} Лондон), бронь не подтверждена."))
+                    await runner._safe(owner.notify(texts.t("time_up", until=args.until)))
+                    ended = "until"
                     break
+            if runner.stopped:
+                ended = "stop"
         finally:
             timers.cancel_all()
             if poller:
                 poller.cancel()
             log.close()
+            if started:
+                why = texts.t(f"end.{ended}", minutes=f"{args.linger:.0f}")
+                try:
+                    await owner.send(texts.t("end", reason=why, log=f"runs/{rd.name}/decisions.md"))
+                except Exception:  # noqa: BLE001 - the run is over either way
+                    pass
             await owner.close()
             await transport.stop()
         try:
@@ -355,6 +366,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
 def main(argv=None) -> int:
     args = parse_args(argv)
     secrets = load_secrets()
+    texts.use(secrets.get("OWNER_LANG"))  # the environment variable, when set, wins
     try:
         now = clock.parse_now(args.now) if args.now else None
         peer = args.peer or (sorted(config.ALLOWED_TEST_PEERS)[0] if args.mode == "test" else None)

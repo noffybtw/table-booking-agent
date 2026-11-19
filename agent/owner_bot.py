@@ -1,6 +1,6 @@
 """The owner channel: a separate Telegram bot (Bot API over httpx long polling) that talks only to OWNER_CHAT_ID.
 
-Questions go out in Russian with buttons when there is a choice; answers come back as owner_answer events.
+Questions go out in OWNER_LANG (agent/texts.py) with buttons when there is a choice; answers come back as owner_answer events.
 /pause, /resume, /stop and /status are commands. Every conversation line is mirrored here, silently.
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ import asyncio
 
 import httpx
 
+from agent import texts
 from agent.events import Event
 
 API = "https://api.telegram.org"
@@ -61,9 +62,9 @@ class OwnerBot:
             markup = {"inline_keyboard": [[{"text": label, "callback_data": f"{key}|{value}"[:64]}
                                            for label, value in buttons]]}
         elif contact:
-            markup = {"keyboard": [[{"text": "Отправить мой номер", "request_contact": True}]],
+            markup = {"keyboard": [[{"text": texts.t("contact_button"), "request_contact": True}]],
                       "one_time_keyboard": True, "resize_keyboard": True}
-        mid = await self.send(f"❓ {question}\n\n(ответь реплаем на это сообщение)", markup=markup)
+        mid = await self.send(f"❓ {question}\n\n{texts.t('reply_hint')}", markup=markup)
         self.asked[mid] = key
 
     async def notify(self, text: str) -> None:
@@ -106,7 +107,7 @@ class OwnerBot:
             label = next((b["text"] for row in (msg.get("reply_markup") or {}).get("inline_keyboard", [])
                           for b in row if b.get("callback_data") == cq.get("data")), value)
             try:
-                await self.call("answerCallbackQuery", callback_query_id=cq["id"], text="Принято")
+                await self.call("answerCallbackQuery", callback_query_id=cq["id"], text=texts.t("accepted"))
                 await self.call("editMessageReplyMarkup", chat_id=self.chat_id, message_id=msg["message_id"],
                                 reply_markup={"inline_keyboard": []})
             except OwnerBotError:
@@ -118,7 +119,7 @@ class OwnerBot:
         if "contact" in msg:
             phone = msg["contact"].get("phone_number", "")
             try:
-                await self.send("Номер получен.", markup={"remove_keyboard": True})
+                await self.send(texts.t("phone_received"), markup={"remove_keyboard": True})
             except OwnerBotError:
                 pass
             return Event("owner_answer", key="phone", text=phone, contact=True)

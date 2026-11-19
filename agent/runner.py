@@ -6,6 +6,7 @@ import heapq
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Protocol
 
+from agent import texts
 from agent.engine import Engine
 from agent.events import AskOwner, Event, Log, Msg, NotifyOwner, Schedule, SendText, SendVoice, Stop
 from agent.runlog import RunLog
@@ -118,8 +119,8 @@ class Runner:
             elif isinstance(a, Log):
                 self.log.record(a)
                 if a.kind == "in" and self.mirror_on:
-                    what = "голосовое" if a.data.get("kind") == "voice" else "менеджер"
-                    await self._safe(self.owner.mirror(f"{what}: {a.data.get('text') or '(без текста)'}"))
+                    what = texts.t("mirror.voice" if a.data.get("kind") == "voice" else "mirror.manager")
+                    await self._safe(self.owner.mirror(f"{what}: {a.data.get('text') or texts.t('mirror.no_text')}"))
 
     async def _send(self, a: SendText | SendVoice) -> None:
         via, msg_id, error = "text", None, None
@@ -137,12 +138,13 @@ class Runner:
                 msg_id = await self.transport.send_text(a.text)
         except Exception as e:  # noqa: BLE001 - logged and told to the owner, the run goes on
             error = f"{type(e).__name__}: {str(e)[:160]}"
-            await self._safe(self.owner.notify(f"Не удалось отправить сообщение #{a.n}: {error}"))
+            await self._safe(self.owner.notify(texts.t("send_failed", n=a.n, error=error)))
         self.log.sent(a, via, msg_id, error)
         if not error:
             self.sent.append((via, a.text))
             if self.mirror_on:
-                await self._safe(self.owner.mirror(f"агент #{a.n}{' (голос)' if via == 'voice' else ''}: {a.text}"))
+                await self._safe(self.owner.mirror(texts.t(
+                    "mirror.agent", n=a.n, voice=texts.t("mirror.voice_tag") if via == "voice" else "", text=a.text)))
 
     async def _safe(self, coro):
         try:

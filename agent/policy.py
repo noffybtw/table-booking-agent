@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from agent import guard
+from agent import guard, texts
 from agent.facts import FactStore
 
 KEY_ALIASES = {
@@ -17,19 +17,18 @@ KEY_ALIASES = {
 }
 OPTIONAL_KEYS = {"phone", "email"}
 
-QUESTIONS_RU = {
-    "guest_name": "На какое имя записать бронь?",
-    "phone": "Нужен телефон для брони. Ответь сообщением или кнопкой «Отправить мой номер».",
-    "email": "Нужен email для брони.",
-    "occasion": "Спрашивают, есть ли повод (день рождения и т.п.).",
-    "allergies": "Спрашивают про аллергии или диету.",
-    "deposit": "Просят депозит или оплату. Агент деньги не обещает. Что ответить?",
-    "card_details": "Просят данные карты. Агент их не даёт. Что ответить?",
+QUESTION_KEYS = ("guest_name", "phone", "email", "occasion", "allergies", "deposit", "card_details")
+# what decisions.md says for an owner question (the bot wording stays in events.jsonl)
+GLOSS = {
+    "guest_name": "what name to book under",
+    "phone": "a contact phone for the booking",
+    "email": "an email for the booking",
+    "occasion": "whether there is an occasion",
+    "allergies": "allergies or diet",
+    "deposit": "the manager asks for a deposit or payment; what to answer",
+    "card_details": "the manager asks for card details; what to answer",
+    "reply_help": "every draft was blocked; what to tell the manager",
 }
-NAME_AGAIN_RU = "Напиши имя латиницей, так, как его сказать менеджеру (например, Yaroslav)."
-WHICH_RU = "Не понял, к какому вопросу это. Открыты: {keys}. Ответь реплаем на нужный вопрос."
-KEY_NAMES_RU = {"guest_name": "имя для брони", "phone": "телефон", "email": "email",
-                "alternative_time": "другое время", "reply_help": "что ответить менеджеру"}
 
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z '.-]{1,40}$")
 
@@ -54,8 +53,6 @@ YES_RE = re.compile(r"^\s*(?:(?:да|ага|ок|окей|ok|okay|yes|yep|sure|f
 NO_RE = re.compile(r"^\s*(нет|не подходит|только|ні|не підходить|тільки|лише|no|nope|only|not)\b", re.I)
 # a yes that also says no ("ок, но только 17:00") is not a yes
 NOT_RE = re.compile(r"\b(нет|не|только|ні|тільки|лише|no|not|only)\b", re.I)
-TIME_AGAIN_RU = "Не понял ответ. Нажми кнопку."
-RESTATED_WITHOUT_RU = "Ответа нет 10 минут: подтверждение ушло менеджеру без поля «{keys}». Если ответишь, агент передаст."
 
 
 def manager_asked(key: str, manager_texts: list[str]) -> bool:
@@ -65,15 +62,16 @@ def manager_asked(key: str, manager_texts: list[str]) -> bool:
 
 
 def owner_question(key: str, facts: FactStore, manager_last: str) -> tuple[str, list[tuple[str, str]], bool]:
-    """Russian question for the owner, inline buttons (label, value), and whether to offer a contact button."""
-    said = f"\nМенеджер написал: «{manager_last.strip()[:300]}»" if manager_last.strip() else ""
+    """The question for the owner in OWNER_LANG, inline buttons (label, value), and whether to offer a contact button."""
+    said = texts.t("manager_said", text=manager_last.strip()[:300]) if manager_last.strip() else ""
     if key == "alternative_time":
-        offered = facts.get("offered_time") or "другое время"
-        q = f"Менеджер предлагает {offered} вместо {facts.get('time')}. Что ответить?{said}"
-        return q, [(f"{offered} подходит", "accept"), (f"Только {facts.get('time')}", "only")], False
+        offered = facts.get("offered_time") or texts.t("other_time")
+        q = texts.t("q.alternative_time", offered=offered, time=facts.get("time")) + said
+        return q, [(texts.t("btn.accept", offered=offered), "accept"),
+                   (texts.t("btn.only", time=facts.get("time")), "only")], False
     if key == "reply_help":
-        return f"Не могу ответить менеджеру без выдумки. Что ему сказать?{said}", [], False
-    base = QUESTIONS_RU.get(key, f"Менеджер спрашивает: {key.replace('_', ' ')}. Ответь сообщением.")
+        return texts.t("q.reply_help") + said, [], False
+    base = texts.t(f"q.{key}") if key in QUESTION_KEYS else texts.t("q.other", key=key.replace("_", " "))
     return f"{base}{said}", [], key == "phone"
 
 
@@ -88,11 +86,24 @@ def owner_key(pending: list[str], text: str) -> str | None:
 
 
 def which_question(pending: list[str]) -> str:
-    return WHICH_RU.format(keys=", ".join(KEY_NAMES_RU.get(k, k.replace("_", " ")) for k in pending))
+    return texts.t("which", keys=", ".join(key_name(k) for k in pending))
+
+
+def key_name(key: str) -> str:
+    return texts.t(f"key.{key}") if texts.has(f"key.{key}") else key.replace("_", " ")
+
+
+def gloss(key: str, facts: FactStore) -> str:
+    if key == "alternative_time":
+        offered = facts.get("offered_time") or "another time"
+        return (f"the manager offers {offered} instead of {facts.get('time')}; buttons \"{offered} works\" / "
+                f"\"Only {facts.get('time')}\"")
+    return GLOSS.get(key, f"the manager asks about {key.replace('_', ' ')}")
 
 
 def strip_label(text: str) -> str:
-    return re.sub(r"^\s*(name|имя|phone|телефон|номер|email|почта)\s*[:\-]\s*", "", text or "", flags=re.I).strip()
+    return re.sub(r"^\s*(name|имя|ім['ʼ]?я|phone|телефон|номер|email|e-mail|почта|пошта)\s*[:\-]\s*", "", text or "",
+                  flags=re.I).strip()
 
 
 def time_answer(text: str, offered: str | None, time: str | None) -> str | None:

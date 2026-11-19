@@ -1,5 +1,5 @@
 """What the owner types in the bot and what the agent does with it."""
-from agent import clock
+from agent import clock, texts
 from agent.brain import D, FakeBrain
 from agent.engine import Engine
 from agent.events import AskOwner, Event, Log, NotifyOwner, SendText, SendVoice
@@ -36,7 +36,7 @@ def test_cyrillic_name_is_not_stored_and_asked_again():
         assert e.facts.get("guest_name") is None and "guest_name" in e.pending
         assert sends(acts) == [] and not e.brain.queue  # no model turn, nothing to the manager
         again = [a for a in acts if isinstance(a, AskOwner)]
-        assert len(again) == 1 and again[0].key == "guest_name" and "латиниц" in again[0].question
+        assert len(again) == 1 and again[0].key == "guest_name" and again[0].question == texts.t("name_again")
         assert any(isinstance(a, Log) and a.data.get("result") == "not in Latin letters, asked again" for a in acts)
 
 
@@ -72,7 +72,7 @@ def test_several_open_and_unclear_text_asks_which():
     acts = e.handle(Event("owner_answer", text="Yaroslav"))
     assert e.facts.get("guest_name") is None and set(e.pending) == {"guest_name", "phone"}
     note = [a.text for a in acts if isinstance(a, NotifyOwner)]
-    assert len(note) == 1 and "имя для брони" in note[0] and "телефон" in note[0]
+    assert len(note) == 1 and texts.t("key.guest_name") in note[0] and texts.t("key.phone") in note[0]
     assert sends(acts) == [] and not e.brain.queue
 
 

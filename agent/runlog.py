@@ -11,6 +11,13 @@ from agent import clock
 from agent.events import AskOwner, Log, NotifyOwner, Schedule, SendText, SendVoice, Stop
 
 PHONE_RE = re.compile(r"\+?\d[\d ()\-]{5,}\d")
+# decisions.md is English only: owner wording and non-Latin manager text stay in events.jsonl
+CYRILLIC_RE = re.compile(r"[\u0400-\u052F]")
+CYRILLIC_RUN_RE = re.compile(r"[\u0400-\u052F]+(?:[\s,.!?:;'\"«»()\d-]*[\u0400-\u052F]+)*")
+
+
+def latin_only(text: str) -> str:
+    return CYRILLIC_RUN_RE.sub("[non-Latin text]", text or "")
 
 
 def mask_phone(text: str) -> str:
@@ -64,7 +71,7 @@ class RunLog:
             f.write(self._clean(line) + "\n")
 
     def line(self, text: str) -> None:
-        text = self._clean(f"{clock.hhmm(self.now(), seconds=True)} {text}")
+        text = latin_only(self._clean(f"{clock.hhmm(self.now(), seconds=True)} {text}"))
         with self.decisions.open("a") as f:
             f.write(f"- {text}\n")
         if self.echo:
@@ -75,6 +82,8 @@ class RunLog:
             what = {"voice": "manager (voice)", "edit": "manager (edited)", "media": "manager (media)"}.get(
                 row["kind"], "manager")
             text = f'"{short(row["text"])}"' if row["text"] else "(no text)"
+            if CYRILLIC_RE.search(row["text"] or ""):
+                text = f"(not in Latin letters, {len(row['text'])} characters; the original is in events.jsonl)"
             if row["kind"] == "edit" and row.get("old_text"):
                 text += f' (was "{short(row["old_text"], 120)}")'
             tail = ""
@@ -96,11 +105,11 @@ class RunLog:
                     self.line(f"DECIDED: {short(act.data.get('decided', ''), 300)}")
             elif act.kind == "owner_question":
                 self._flush_in()
-                self.line(f'OWNER asked ({act.data["key"]}): "{short(act.data["question"], 200)}"')
+                self.line(f'OWNER asked ({act.data["key"]}): {act.data.get("gloss") or "see events.jsonl"}')
             elif act.kind == "owner_answer":
                 used = f', used in reply #{act.data["used_in"]}' if act.data.get("used_in") else ""
-                result = f' - {act.data["result"]}' if act.data.get("result") else ""
-                self.line(f'OWNER answered {act.data["key"]}: "{short(act.data["text"], 200)}"{used}{result}')
+                what = act.data.get("summary") or act.data.get("result") or "answered"
+                self.line(f'OWNER answered {act.data["key"]}: {short(what, 300)}{used}')
             elif act.kind == "note":
                 self._flush_in()
                 self.line(f"NOTE {act.data.get('text', '')}")

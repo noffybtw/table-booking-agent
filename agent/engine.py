@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Callable
 
-from agent import clock, guard, policy, restate
+from agent import clock, guard, policy, restate, texts
 from agent.brain import BrainDown, Decision
 from agent.config import Timings
 from agent.events import AskOwner, Event, Log, Msg, NotifyOwner, Schedule, SendText, SendVoice, Stop
@@ -94,6 +94,9 @@ class Engine:
         return (f"STATE: phase {self.phase}; manager agreed: {'yes' if self.agreed else 'no'}; "
                 f"pending owner questions: {pend}; final restatement sent: {'yes' if self.restated_sig else 'no'}; "
                 f"closing reply sent: {'yes' if self.closed else 'no'}.")
+
+    def status_text(self) -> str:
+        return texts.t("status", state=self.state_text(), n_in=self.n_in, n_out=self.n_out)
 
     # ---------- events ----------
 
@@ -184,15 +187,22 @@ class Engine:
                     q, buttons, contact = policy.owner_question(key, self.facts, self.pending.get(key, {}).get("said", ""))
                     return [Log("owner_answer", {"key": key, "text": text,
                                                  "result": "neither yes nor no, question sent again"}),
-                            AskOwner(key, f"{policy.TIME_AGAIN_RU} {q}", buttons, contact)]
+                            AskOwner(key, f"{texts.t('time_again')} {q}", buttons, contact)]
                 return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
-                        AskOwner(key, policy.NAME_AGAIN_RU, [], False)]
+                        AskOwner(key, texts.t("name_again"), [], False)]
+        summary = "owner note, passed to the model"
+        if key == "guest_name":
+            summary = f'name "{self.facts.get("guest_name")}"'
+        elif key == "phone" and self.facts.get("phone") and line.startswith("phone: "):
+            summary = line.removeprefix("phone: ")
         if key == "alternative_time" and offered:
             if self.facts.get("time") == offered:
                 # the manager offered it and the owner took it: the new time is agreed on both sides
                 self.facts.confirm("time")
+                summary = f"accepted {offered}"
             else:
                 self.declined_times.add(offered)  # only on "only" or a no: anything else was asked again above
+                summary = f"only {self.facts.get('time')}, {offered} declined"
             self.facts.drop("offered_time")
         self.pending.pop(key, None)
         self.gen[f"owner:{key}"] = self.gen.get(f"owner:{key}", 0) + 1
@@ -205,7 +215,12 @@ class Engine:
                  f"do not ask the manager anything you already know.")
         acts += self._respond(event, self.last_voice)
         used = self.n_out if self.n_out > n_before else None
-        acts.insert(0, Log("owner_answer", {"key": key, "text": text, "line": line, "used_in": n_before + 1 if used else None}))
+        if summary.startswith("owner note"):
+            understood = next((a.data.get("understood") for a in acts if isinstance(a, Log) and a.kind == "decision"), "")
+            if understood and understood != "-":
+                summary += f"; the model understood: {understood}"
+        acts.insert(0, Log("owner_answer", {"key": key, "text": text, "line": line, "summary": summary,
+                                            "used_in": n_before + 1 if used else None}))
         return acts
 
     def _timer(self, ev: Event) -> list:
@@ -223,7 +238,7 @@ class Engine:
                 self.followups = 2
                 acts = self._say(FOLLOW_UP_2.format(time=t), "", "no reply for 30 minutes, second and last follow-up",
                                  fallback=FOLLOW_UP_2.format(time=t), rearm=False)
-                return acts + [NotifyOwner("Менеджер молчит 30 минут. Больше не напоминаю, жду ответа."),
+                return acts + [NotifyOwner(texts.t("silent_30")),
                                Log("note", {"text": "silence: no more follow-ups, waiting"})]
             return []
         if name in ("owner_reping", "owner_wait"):
@@ -232,7 +247,7 @@ class Engine:
                 return []
             if name == "owner_reping":
                 q, buttons, contact = policy.owner_question(key, self.facts, self.pending[key]["said"])
-                return [AskOwner(key, "Напоминаю: " + q, buttons, contact, reminder=True)]
+                return [AskOwner(key, texts.t("reminder") + q, buttons, contact, reminder=True)]
             if self.pending[key].get("apologised"):
                 return []
             self.pending[key]["apologised"] = True
@@ -243,11 +258,11 @@ class Engine:
                     missing = [k for k in DETAIL_KEYS if k in self.pending]
                     for k in missing:
                         self.pending[k]["apologised"] = True
-                    names = ", ".join(policy.KEY_NAMES_RU.get(k, k) for k in missing)
+                    names = ", ".join(policy.key_name(k) for k in missing)
                     return ([Log("decision", {"understood": "-", "decided": f"owner has not answered {', '.join(missing)} "
                                               "for 10 minutes; restatement without it"})]
                             + self._restate(text, restate.signature(self.facts))
-                            + [NotifyOwner(policy.RESTATED_WITHOUT_RU.format(keys=names))])
+                            + [NotifyOwner(texts.t("restated_without", keys=names))])
             text = SORRY_WAIT
             if key in policy.OPTIONAL_KEYS and self.facts.get("guest_name"):
                 text += NAME_ONLY.format(name=self.facts.get("guest_name"))
@@ -265,7 +280,7 @@ class Engine:
             self.stopped = True
             return [Log("note", {"text": "owner: /stop, the agent sends nothing more"}), Stop("owner /stop")]
         if cmd == "status":
-            return [NotifyOwner(f"{self.state_text()} Сообщений: от менеджера {self.n_in}, от агента {self.n_out}.")]
+            return [NotifyOwner(self.status_text())]
         if cmd == "pause":
             self.paused = True
             return [Log("note", {"text": "owner: /pause"})]
@@ -306,7 +321,7 @@ class Engine:
             acts.append(Schedule("brain_retry", self.t.brain_retry, self.gen["retry"]))
             if not self.brain_down_sent:
                 self.brain_down_sent = True
-                acts.append(NotifyOwner("Groq недоступен, агент ждёт и пробует снова каждые 30 с."))
+                acts.append(NotifyOwner(texts.t("groq_down")))
                 acts += self._say(TECH_HOLD, "", "model unavailable, holding line from a template",
                                   fallback=TECH_HOLD, rearm=False)
             return acts
@@ -371,7 +386,7 @@ class Engine:
             q, buttons, contact = policy.owner_question(k, f, last)
             self.pending[k] = {"said": last, "turn": self.turn}
             g = self.gen[f"owner:{k}"] = self.gen.get(f"owner:{k}", 0) + 1
-            acts += [AskOwner(k, q, buttons, contact), Log("owner_question", {"key": k, "question": q}),
+            acts += [AskOwner(k, q, buttons, contact), Log("owner_question", {"key": k, "question": q, "gloss": policy.gloss(k, f)}),
                      Schedule("owner_reping", self.t.owner_reping, g, k), Schedule("owner_wait", self.t.owner_wait, g, k)]
 
 
@@ -452,7 +467,7 @@ class Engine:
         probs = restate.verify(text, self.facts) + [str(p) for p in guard.check(text, self.facts, self.chat_texts)]
         if probs:
             return [Log("guard", {"text": text, "problems": probs, "result": "restatement blocked"}),
-                    NotifyOwner(f"Финальное подтверждение не прошло проверку: {'; '.join(probs)}")]
+                    NotifyOwner(texts.t("restatement_blocked", problems="; ".join(probs)))]
         self.restated_sig = sig
         self.n_restated += 1
         self.phase = CONFIRMED
@@ -463,7 +478,7 @@ class Engine:
         self.transcript.append(f"AGENT: {text}")
         cls = SendVoice if self.voice_restatement else SendText
         return [Log("guard", {"text": text, "problems": [], "result": "ok"}), cls(text, why, self.n_out),
-                NotifyOwner(f"Бронь подтверждена: {text}")]
+                NotifyOwner(texts.t("booked", text=text))]
 
     def _say(self, draft: str, event: str, why: str, fallback: str | None, voice: bool = False,
              rearm: bool = True) -> list:
@@ -495,12 +510,11 @@ class Engine:
                                       "result": "ok" if not probs else "blocked", "retry": "template"}))
             if not probs:
                 why += f" (drafts blocked: {guard.describe(first)}; template sent)"
-                acts.append(NotifyOwner(f"Guard заблокировал ответ модели ({guard.describe(first)}), "
-                                        f"отправлен шаблон: «{text}»"))
+                acts.append(NotifyOwner(texts.t("guard_template", why=guard.describe(first), text=text)))
                 if not self.pending and self.phase != NEW and fallback == HOLD:
                     acts += self._ask_help()
         if probs:
-            acts.append(NotifyOwner(f"Guard заблокировал ответ, ничего не отправлено: {guard.describe(first)}"))
+            acts.append(NotifyOwner(texts.t("guard_nothing", why=guard.describe(first))))
             return acts
         self.n_out += 1
         self.transcript.append(f"AGENT: {text}")
@@ -515,7 +529,8 @@ class Engine:
         q, buttons, contact = policy.owner_question("reply_help", self.facts, last)
         self.pending["reply_help"] = {"said": last, "turn": self.turn}
         g = self.gen["owner:reply_help"] = self.gen.get("owner:reply_help", 0) + 1
-        return [AskOwner("reply_help", q, buttons, contact), Log("owner_question", {"key": "reply_help", "question": q}),
+        return [AskOwner("reply_help", q, buttons, contact), Log("owner_question", {"key": "reply_help", "question": q,
+                                                                    "gloss": policy.gloss("reply_help", self.facts)}),
                 Schedule("owner_reping", self.t.owner_reping, g, "reply_help"),
                 Schedule("owner_wait", self.t.owner_wait, g, "reply_help")]
 
