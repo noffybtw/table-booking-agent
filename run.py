@@ -286,8 +286,7 @@ async def cmd_telegram(args, secrets, peer: str) -> int:
     from agent.transport_tg import SessionLock, TelegramTransport
     from agent.voice import Voice
 
-    need = ["TG_SESSION", "TG_API_ID", "TG_API_HASH", "OWNER_BOT_TOKEN", "OWNER_CHAT_ID", "GROQ_API_KEY"]
-    missing = [k for k in need if not secrets.get(k)]
+    missing = [k for k in config.TELEGRAM_KEYS if not secrets.get(k)]
     if missing:
         print(f"missing in .env: {', '.join(missing)}", file=sys.stderr)
         return 2

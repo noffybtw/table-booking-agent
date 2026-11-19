@@ -19,6 +19,10 @@ ALLOWED_TEST_PEERS = {"noffybtw"}
 ON_BEHALF_OF = "Yaroslav"
 LIVE_LATEST = (16, 30)  # London; later than this a live run would book a slot that is about to pass
 
+# keys read from .env (.env.example lists them with empty values)
+TELEGRAM_KEYS = ("TG_SESSION", "TG_API_ID", "TG_API_HASH", "OWNER_BOT_TOKEN", "OWNER_CHAT_ID", "GROQ_API_KEY")
+ENV_KEYS = ("GROQ_API_KEY", "TG_API_ID", "TG_API_HASH", "TG_SESSION", "OWNER_BOT_TOKEN", "OWNER_CHAT_ID", "OWNER_LANG")
+
 PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "qwen/qwen3.8-27b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"

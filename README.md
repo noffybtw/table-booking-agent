@@ -4,9 +4,9 @@ A Telegram agent that books a table for two in a London restaurant by writing to
 
 ## Run
 
-Python 3.12. Packages: telethon, openai, httpx, pydantic, python-dotenv, edge-tts, jinja2, playwright (Chromium), pytest; ffmpeg with libopus on the PATH.
+Python 3.12, `pip install -r requirements.txt` (the versions it was tested with), `playwright install chromium`, and ffmpeg with libopus on the PATH.
 
-`.env` in the project root:
+`.env` in the project root, the keys as in `.env.example`:
 
 | key | what |
 |---|---|
@@ -32,6 +32,12 @@ python -m agent.render runs/<run-id>               # transcript PNG of any run
 - Both Telegram modes take a lock in `state/`, so two processes never share the session. They do not start after `--until` (17:00 London by default) and stop there if the booking is not confirmed; after the restatement they stay until 60 minutes (`--linger`) pass with no message from the manager or me.
 
 Each run gets a new `runs/<mode>-<time>/` folder with `decisions.md`, `events.jsonl` and, for Telegram runs, `transcript.png`.
+
+## Rerun at the interview
+
+- `python3 run.py --mode live --live-confirm vlad_dev_7`, or `--mode test` to play the manager from @noffybtw (the live limits are under Run).
+- In @yk_booking_console_bot press the button under a question, or reply to the question message with the answer (a name in Latin letters).
+- To stop: `/stop` in the bot, or Ctrl-C in the terminal.
 
 ## How a turn works
 
