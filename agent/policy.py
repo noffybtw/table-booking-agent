@@ -465,13 +465,14 @@ def owner_field_questions(text: str, keys, known=()) -> list[tuple[str, str]]:
 # the agent writes as the one booking: no "assistant", no third person, except when the manager asks if it is a bot
 PERSONA_RE = re.compile(r"\bassistant\b|\bthe guests?\b|\bmy client\b|\bon behalf of\b", re.I)
 BOT_QUESTION_RE = re.compile(r"\b(?:bot|robot|ai|a\.i\.|artificial|automated|machine|chat ?gpt|human|real person|"
-                             r"a person|computer)\b", re.I)
+                             r"(?<!for )(?<!of )a person|computer)\b", re.I)
 
 
-# with no "?" only a direct "is this AI", "you sound like a robot", "are you real" counts
+# with no "?" only a direct "is this AI", "you sound like a robot", "are you real" counts; "a real booking" does not
 BOT_STATEMENT_RE = re.compile(r"\b(?:are|is) (?:you|this|it|that)\b(?: \w+){0,3} (?:a |an )?(?:bot|robot|ai|a\.i\.|"
-                              r"artificial|automated|machine|chat ?gpt|human|real|computer)\b|"
-                              r"\byou (?:sound|seem|look|write|type|talk)(?: \w+){0,2} like\b|"
+                              r"artificial|automated|machine|chat ?gpt|human|real(?! (?!person\b|human\b)\w)|computer)\b|"
+                              r"\byou (?:sound|seem|write|type|talk)(?: \w+){0,2} like (?:a |an )?(?:bot|robot|ai|"
+                              r"machine|computer)\b|"
                               r"\byou(?:'re| are) (?:a |an )?(?:bot|robot|ai|machine|computer)\b", re.I)
 IDENTITY_RE = re.compile(r"\bwho (?:am i|are we) (?:speaking|talking|chatting|writing) (?:with|to)\b|"
                          r"\bwho(?:'s| is) (?:this|that|speaking|writing|messaging)\b|\bwho are you\b", re.I)

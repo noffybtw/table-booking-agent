@@ -801,7 +801,9 @@ class Engine:
         return out.strip() or HOLD, True
 
     def _honest(self) -> str:
-        name = self.facts.get("guest_name") or (self.profile.get("guest_name") if self.profile else None)
+        # the profile's name only before the restatement: after it a new name would bring a second restatement
+        name = self.facts.get("guest_name") or (self.profile.get("guest_name") if self.profile and self.restated_sig
+                                                is None else None)
         if name and not self.facts.get("guest_name"):
             self.facts.set("guest_name", name, "owner", self.turn)  # the profile's name goes out with the answer
         return HONEST.format(under=f" under the name {name}" if name else "")

@@ -45,6 +45,10 @@ def test_not_a_bot_question():
     assert not policy.asks_if_bot("We have a table at 17:00.")
     assert not policy.asks_if_bot("Our card machine is down, cash only.")
     assert not policy.asks_if_bot("It's £20 a person.")
+    assert not policy.asks_if_bot("You look like you'd enjoy the window table - 17:00 is fine.")
+    assert not policy.asks_if_bot("Is that a real booking or a joke?")
+    assert not policy.asks_if_bot("Is this for a person in a wheelchair?")
+    assert policy.asks_if_bot("You sound like a robot.") and policy.asks_if_bot("Are you a real person?")
 
 
 @pytest.mark.parametrize("question", ["is this AI", "You sound like a robot.", "are you real"])
@@ -79,3 +83,16 @@ def test_identity_question_with_a_profile_name():
     e.profile = from_dict({"guest_name": "Yaroslav"})
     out = sends(e.handle(Event("manager_message", text="Who is this?")))
     assert out == ["I'm an AI assistant making this booking under the name Yaroslav. Is 17:00 still free?"]
+
+
+def test_bot_question_after_the_restatement_brings_no_second_restatement():
+    from agent.profile import from_dict
+    e = opened(D("", action="final_restatement", intent="agreed", manager_agreed=True, restaurant_name="The Ivy"),
+               D("Yes, I am.", intent="bot_question"), D("Thank you, see you then!", intent="pleasantry"))
+    e.profile = from_dict({"guest_name": "Yaroslav"})
+    first = e.handle(Event("manager_message", text="Yes, 17:00 is fine. We're The Ivy."))
+    assert e.n_restated == 1 and "Yaroslav" not in " ".join(sends(first))
+    out = sends(e.handle(Event("manager_message", text="Out of interest, are you a bot?")))
+    assert out and out[0].startswith("I'm an AI assistant making this booking.") and "Yaroslav" not in out[0]
+    e.handle(Event("manager_message", text="Ha ok. See you"))
+    assert e.n_restated == 1
