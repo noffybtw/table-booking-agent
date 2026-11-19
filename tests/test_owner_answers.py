@@ -74,3 +74,47 @@ def test_several_open_and_unclear_text_asks_which():
     note = [a.text for a in acts if isinstance(a, NotifyOwner)]
     assert len(note) == 1 and "имя для брони" in note[0] and "телефон" in note[0]
     assert sends(acts) == [] and not e.brain.queue
+
+
+YES_WORDS = ["хорошо", "ладно", "конечно", "пойдёт", "пойдет", "можно", "берём", "берем", "так", "добре", "гаразд",
+             "звісно", "підходить", "згоден", "годиться", "+", "\U0001F44D", "да", "ok", "Yes, fine"]
+NO_WORDS = ["нет", "не подходит", "только 17:00", "ні", "не підходить", "тільки 17:00", "лише 17", "no", "only 17:00"]
+
+
+def countered():
+    e = opened()
+    e.brain.push(D("Let me just check whether 18:30 would work.", action="ask_owner", intent="counter_offer",
+                   needs_owner=["alternative_time"], offered_time="18:30"))
+    e.handle(Event("manager_message", text="We're full at 17:00. Could you do 18:30 instead?"))
+    assert "alternative_time" in e.pending
+    return e
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("word", YES_WORDS)
+def test_yes_in_words_takes_the_offered_time(word):
+    e = countered()
+    e.brain.push(D("Thank you, 18:30 works for us.", intent="agreed"))
+    e.handle(Event("owner_answer", key="alternative_time", text=word))
+    assert e.facts.get("time") == "18:30" and e.facts.is_confirmed("time") and not e.declined_times
+
+
+@pytest.mark.parametrize("word", NO_WORDS)
+def test_no_in_words_keeps_17_and_declines_the_offer(word):
+    e = countered()
+    e.brain.push(D("I'm afraid only 17:00 works for us - might anything open up?", intent="fully_booked"))
+    e.handle(Event("owner_answer", key="alternative_time", text=word))
+    assert e.facts.get("time") == "17:00" and e.declined_times == {"18:30"}
+
+
+@pytest.mark.parametrize("word", ["хм", "подумаю", "ок, но не знаю", "а 19:00?", "ну как там?"])
+def test_neither_yes_nor_no_sends_the_question_again(word):
+    e = countered()
+    acts = e.handle(Event("owner_answer", key="alternative_time", text=word))
+    again = [a for a in acts if isinstance(a, AskOwner)]
+    assert len(again) == 1 and again[0].key == "alternative_time" and [v for _, v in again[0].buttons] == ["accept", "only"]
+    assert sends(acts) == [] and not e.brain.queue  # no model call
+    assert e.facts.get("time") == "17:00" and e.facts.get("offered_time") == "18:30" and not e.declined_times
+    assert "alternative_time" in e.pending

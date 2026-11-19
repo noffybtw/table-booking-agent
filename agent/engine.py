@@ -177,6 +177,11 @@ class Engine:
             line = policy.apply_owner_answer(self.facts, key, text, ev.value, ev.contact, self.turn)
             if line is None:
                 # the question stays open (and its timers run on); no model turn on an answer that is not taken
+                if key == "alternative_time":
+                    q, buttons, contact = policy.owner_question(key, self.facts, self.pending.get(key, {}).get("said", ""))
+                    return [Log("owner_answer", {"key": key, "text": text,
+                                                 "result": "neither yes nor no, question sent again"}),
+                            AskOwner(key, f"{policy.TIME_AGAIN_RU} {q}", buttons, contact)]
                 return [Log("owner_answer", {"key": key, "text": text, "result": "not in Latin letters, asked again"}),
                         AskOwner(key, policy.NAME_AGAIN_RU, [], False)]
         if key == "alternative_time" and offered:
@@ -184,7 +189,7 @@ class Engine:
                 # the manager offered it and the owner took it: the new time is agreed on both sides
                 self.facts.confirm("time")
             else:
-                self.declined_times.add(offered)
+                self.declined_times.add(offered)  # only on "only" or a no: anything else was asked again above
             self.facts.drop("offered_time")
         self.pending.pop(key, None)
         self.gen[f"owner:{key}"] = self.gen.get(f"owner:{key}", 0) + 1

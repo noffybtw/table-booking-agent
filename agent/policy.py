@@ -47,8 +47,14 @@ ASKED_RE = {
 }
 
 
-YES_RE = re.compile(r"^\s*(да|ага|ок|окей|ok|okay|yes|yep|подходит|годится|давай|согласен|норм)\b", re.I)
-NO_RE = re.compile(r"^\s*(нет|не подходит|только|no|nope|only)\b", re.I)
+# the owner's answer to "another time?" in words; parsed in Ukrainian, Russian and English whatever OWNER_LANG says
+YES_RE = re.compile(r"^\s*(?:(?:да|ага|ок|окей|ok|okay|yes|yep|sure|fine|подходит|годится|давай|согласен|норм|хорошо|"
+                    r"ладно|конечно|пойд[её]т|можно|бер[её]м|так|добре|гаразд|звісно|підходить|згоден|годиться)\b|"
+                    r"\+|\U0001F44D)", re.I)
+NO_RE = re.compile(r"^\s*(нет|не подходит|только|ні|не підходить|тільки|лише|no|nope|only|not)\b", re.I)
+# a yes that also says no ("ок, но только 17:00") is not a yes
+NOT_RE = re.compile(r"\b(нет|не|только|ні|тільки|лише|no|not|only)\b", re.I)
+TIME_AGAIN_RU = "Не понял ответ. Нажми кнопку."
 
 
 def manager_asked(key: str, manager_texts: list[str]) -> bool:
@@ -88,31 +94,37 @@ def strip_label(text: str) -> str:
     return re.sub(r"^\s*(name|имя|phone|телефон|номер|email|почта)\s*[:\-]\s*", "", text or "", flags=re.I).strip()
 
 
+def time_answer(text: str, offered: str | None, time: str | None) -> str | None:
+    """"accept", "only" or None (not understood) for an answer typed instead of a button."""
+    said = guard.norm_time(text)
+    if NO_RE.match(text) or (said and said == time):
+        return "only"
+    if (YES_RE.match(text) and not NOT_RE.search(text)) or (offered and said == offered):
+        return "accept"
+    return None
+
+
 def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None, contact: bool,
                        turn: int) -> str | None:
     """Stores the answer; returns the line the model sees (OWNER ...), or None when the answer is not taken and
-    the owner has to be asked again (a name not in Latin letters)."""
+    the owner has to be asked again (a name not in Latin letters, a time answer that is neither yes nor no)."""
     key = norm_key(key)
     text = (text or "").strip()
     if key == "alternative_time":
         offered = facts.get("offered_time")
-        if value is None and YES_RE.match(text):
-            value = "accept"
-        elif value is None and NO_RE.match(text):
-            value = "only"
-        if value == "accept" or (offered and guard.norm_time(text) == offered):
-            if offered:
-                facts.set("time", offered, "owner", turn)
-                facts.drop("owner_note")
-                return f"{offered} works, please book it for {offered}."
+        if value is None:
+            value = time_answer(text, offered, facts.get("time"))
+        if value == "accept" and offered:
+            facts.set("time", offered, "owner", turn)
+            facts.drop("owner_note")
+            return f"{offered} works, please book it for {offered}."
         if value == "only":
             instead = f"{offered} does not work, only" if offered else "Only"
             note = (f"{instead} {facts.get('time')} works. Decline politely and ask whether {facts.get('time')} "
                     f"might free up.")
             facts.set("owner_note", note, "owner", turn)
             return note
-        facts.set("owner_note", text, "owner", turn)
-        return text
+        return None  # neither yes nor no: the question goes again with its buttons
     if key == "phone":
         raw = text if contact else strip_label(text)
         digits = re.sub(r"\D", "", raw)
