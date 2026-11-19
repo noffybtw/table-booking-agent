@@ -264,7 +264,7 @@ def manager_yes(text: str, time: str | None) -> bool:
     t = (text or "").strip()
     if not t or "?" in t or len(t.split()) > 12:
         return False
-    t = NO_PROBLEM_RE.sub(" ", t).strip()
+    t = NO_PROBLEM_RE.sub(" ", t.replace("\u2019", "'")).strip()
     if not t.strip(" ,.!"):
         return True  # "No problem!"
     if MANAGER_NOT_RE.search(t) or MANAGER_STALL_RE.search(t):
