@@ -36,7 +36,8 @@ def test_bot_question_gets_the_honest_answer(question):
 
 def test_templates_have_no_persona_wording():
     for t in (eng.OPENING, eng.HOLD, eng.STILL_CHECKING, eng.SORRY_WAIT, eng.TECH_HOLD, eng.CLOSING, *eng.HOLD_AGAIN,
-              eng.FOLLOW_UP_1, eng.FOLLOW_UP_2, eng.FOLLOW_UP_CONFIRM, eng.ASK_RESTAURANT_ALSO):
+              eng.FOLLOW_UP_1, eng.FOLLOW_UP_2, eng.FOLLOW_UP_CONFIRM, eng.ASK_RESTAURANT_ALSO, eng.CLAIM_REPLY,
+              *eng.REFUSE):
         assert not policy.PERSONA_RE.search(t), t
 
 

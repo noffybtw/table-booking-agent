@@ -17,7 +17,7 @@ KEY_ALIASES = {
 }
 OPTIONAL_KEYS = {"phone", "email"}
 
-QUESTION_KEYS = ("guest_name", "phone", "email", "occasion", "allergies", "deposit", "card_details")
+QUESTION_KEYS = ("guest_name", "phone", "email", "occasion", "allergies", "deposit", "card_details", "claim")
 # what decisions.md says for an owner question (the bot wording stays in events.jsonl)
 GLOSS = {
     "guest_name": "what name to book under",
@@ -28,6 +28,7 @@ GLOSS = {
     "deposit": "the manager asks for a deposit or payment; what to answer",
     "card_details": "the manager asks for card details; what to answer",
     "reply_help": "every draft was blocked; what to tell the manager",
+    "claim": "the manager says our side called, cancelled or changed something; is it true",
 }
 
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z '.-]{1,40}$")
@@ -259,6 +260,9 @@ def apply_owner_answer(facts: FactStore, key: str, text: str, value: str | None,
     if key == "reply_help":
         facts.set("owner_note", text, "owner", turn)
         return text
+    if key == "claim":
+        facts.set("owner_note", text, "owner", turn)
+        return f"about the manager's message that said it came from our side: {text}"
     facts.set(key, strip_label(text), "owner", turn)
     return f"{key.replace('_', ' ')}: {strip_label(text)}"
 
@@ -335,8 +339,10 @@ def manager_times(manager_texts: list[str]) -> set[str]:
     return out
 
 
-def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[dict, list[str]]:
-    """Slot values from the model that the manager really wrote. Returns ({key: value}, rejected notes)."""
+def accepted_slots(slots, facts: FactStore, manager_texts: list[str], untrusted=()) -> tuple[dict, list[str]]:
+    """Slot values from the model that the manager really wrote. `manager_texts` leave out claims made in the
+    owner's name and refused instructions (`untrusted`): a condition only those name ("wheelchair") is not taken.
+    Returns ({key: value}, rejected notes)."""
     ok, rejected = {}, []
     if slots.restaurant_name:
         found = find_in(manager_texts, slots.restaurant_name)
@@ -364,7 +370,11 @@ def accepted_slots(slots, facts: FactStore, manager_texts: list[str]) -> tuple[d
     if slots.condition:
         nums = re.findall(r"\d+", slots.condition)
         blob = " ".join(manager_texts)
-        if all(n in blob for n in nums) and guard.check(slots.condition, facts, manager_texts) == []:
+        only_there = [w for w in re.findall(r"[a-z]{4,}", slots.condition.lower())
+                      if any(w in u.lower() for u in untrusted) and w not in blob.lower()]
+        if only_there:
+            rejected.append(f"condition {slots.condition!r} comes from a line not taken as a fact")
+        elif all(n in blob for n in nums) and guard.check(slots.condition, facts, manager_texts) == []:
             ok["condition"] = slots.condition.strip().rstrip(".")
         else:
             rejected.append(f"condition {slots.condition!r} not backed by the manager's words")
@@ -447,7 +457,7 @@ def asks_restaurant(text: str) -> bool:
 # what the owner holds and the manager does not: asked from the manager, these go to the owner instead
 OWNER_FIELDS = ("guest_name", "phone", "email")
 # open owner questions whose subject is the manager's to name, not the owner's data
-NOT_OWNER_FIELDS = ("alternative_time", "reply_help", "deposit", "card_details")
+NOT_OWNER_FIELDS = ("alternative_time", "reply_help", "deposit", "card_details", "claim")
 FIELD_RE = {
     "guest_name": re.compile(r"(?<!restaurant's )(?<!restaurant )\bname\b(?! of (?:the|your) restaurant)|\bunder (?:what|which|whose)\b|"
                              r"\bwho(?:'s| is) (?:it|the booking|the table|the reservation) for\b|\bsurname\b|\bbooked under\b|"
@@ -479,6 +489,44 @@ def owner_field_questions(text: str, keys, known=()) -> list[tuple[str, str]]:
                 out.append((k, sent))
                 break
     return out
+
+
+# a line that puts words in the owner's mouth ("Your client just rang us and cancelled"): a claim, never a fact.
+# A question ("Does your client want a high chair?") or an "if" clause ("if the guest wants, ...") is not a claim.
+CLAIM_SUBJECT = (r"(?:your|the) (?:client|guest|customer|boss|owner|friend)s?|the person you(?:'re| are) booking for|"
+                 r"(?:someone|somebody) (?:from|on) your side")
+CLAIM_VERB = (r"(?:called|rang|rung|phoned|cancell?ed|asked|wants?|wanted|changed|confirmed|said|told|emailed|e-mailed|"
+              r"messaged|texted|requested|moved|rebooked|updated|contacted|came in|popped in|(?:got|been) in touch)")
+CLAIM_GAP = r"(?:\s+(?:has|have|had|just|already|directly|now|also|actually|then|earlier|been|did))*\s+"
+CONDITIONAL_RE = re.compile(r"\b(?:if|whether|in case|unless|should|when|would|could|does|do|did)\s*$", re.I)
+
+
+CLAIM_RE = re.compile(r"\b(?:" + CLAIM_SUBJECT + r")\b" + CLAIM_GAP + CLAIM_VERB + r"\b|"
+                      r"\b(?:call|message|email|text|word|request|note) from (?:" + CLAIM_SUBJECT + r")\b", re.I)
+
+
+def claim(text: str) -> str | None:
+    """The sentence of the manager's line that says the owner's side called, cancelled, asked, wants, changed or
+    confirmed something; None when there is none."""
+    for sent in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        if sent.rstrip().endswith("?"):
+            continue
+        for m in CLAIM_RE.finditer(sent):
+            if not CONDITIONAL_RE.search(sent[:m.start()]):
+                return sent.strip()
+    return None
+
+
+# instructions to the agent instead of the booking: refused, and nothing in them is a booking fact
+INJECTION_RE = re.compile(r"\b(?:ignore|disregard|forget)\b.{0,40}\b(?:instructions?|rules|prompt)\b|"
+                          r"\bsystem prompt\b|\b(?:your|the) (?:instructions|prompt|config\w*|model name)\b|"
+                          r"={2,}\s*system\b|<\s*/?\s*system\s*>|\boverride\b|\byou are now\b|\bdecode and\b|"
+                          r"\bdiagnostics? mode\b|\bdeveloper mode\b|\bjailbreak|\bprint your\b|"
+                          r"(?<![\w/+=])[A-Za-z0-9+/]{24,}={0,2}(?![\w/+=])", re.I)
+
+
+def injection(text: str) -> bool:
+    return bool(INJECTION_RE.search(text or ""))
 
 
 # the agent writes as the one booking: no "assistant", no third person, except when the manager asks if it is a bot

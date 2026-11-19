@@ -103,7 +103,7 @@ def test_every_engine_template_passes(facts):
     templates = [
         engine.OPENING.format(greeting="Good afternoon", time=t), engine.HOLD, engine.STILL_CHECKING,
         engine.SORRY_WAIT, engine.FOLLOW_UP_1.format(time=t), engine.FOLLOW_UP_2.format(time=t), engine.BAD_VOICE,
-        engine.TECH_HOLD, engine.CLOSING, restate.ASK_RESTAURANT,
+        engine.TECH_HOLD, engine.CLOSING, restate.ASK_RESTAURANT, engine.CLAIM_REPLY, *engine.REFUSE,
     ]
     for text in templates:
         assert guard.check(guard.fix(text), facts, []) == [], text
